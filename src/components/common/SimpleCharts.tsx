@@ -3,7 +3,7 @@
 // Basic chart implementation without external dependencies
 // ============================================================================
 
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { formatCurrency, formatAge } from '../../utils/formatters';
 
 interface ChartDataPoint {
@@ -83,7 +83,7 @@ export function SimpleLineChart({
     );
   }
 
-  const { points, pathData, fillPath, minValue, maxValue, padding, chartWidth, chartHeight } = chartData;
+  const { points, pathData, fillPath, minValue, maxValue, padding, chartHeight } = chartData;
 
   // Generate grid lines
   const gridLines = showGrid ? Array.from({ length: 5 }, (_, i) => {
@@ -187,7 +187,6 @@ export function SimpleBarChart({
   height = 300,
   title,
   valueFormatter = formatCurrency,
-  horizontal = false,
   className = ''
 }: BarChartProps) {
   const chartData = useMemo(() => {

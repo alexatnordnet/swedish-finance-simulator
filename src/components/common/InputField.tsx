@@ -3,7 +3,6 @@
 // Reusable input field with validation and Swedish formatting
 // ============================================================================
 
-import React from 'react';
 import { AlertCircle, HelpCircle } from 'lucide-react';
 
 interface InputFieldProps {
@@ -144,7 +143,7 @@ export function CurrencyInput({ value, onChange, ...props }: CurrencyInputProps)
       value={displayValue}
       onChange={handleChange}
       suffix="kr"
-      step="1000"
+      step={1000}
     />
   );
 }

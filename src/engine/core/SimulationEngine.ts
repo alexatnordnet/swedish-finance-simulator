@@ -75,7 +75,7 @@ export class SimulationEngine {
     monthlyExpenses: number;
   }): MVPYearProjection {
     
-    const { year, age, isRetired, currentSalary, liquidAssets, iskAccount, monthlyExpenses } = yearInputs;
+    const { year, age, currentSalary, liquidAssets, iskAccount, monthlyExpenses } = yearInputs;
     
     // Calculate taxes and net income
     const taxResult = taxCalculator.calculateYearlyTax({
@@ -122,7 +122,6 @@ export class SimulationEngine {
     compensationRatio: number;
   } {
     // Very simplified pension calculation for MVP
-    const workingYears = inputs.profile.desiredRetirementAge - inputs.profile.currentAge;
     const avgSalary = inputs.income.monthlySalary;
     
     // Rough estimate: 60% of final salary from all pension sources

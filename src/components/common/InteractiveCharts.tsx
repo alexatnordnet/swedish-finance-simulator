@@ -3,7 +3,7 @@
 // Real charts using Canvas API for better performance
 // ============================================================================
 
-import React, { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { formatCurrency, formatAge } from '../../utils/formatters';
 
 interface ChartDataPoint {
@@ -159,6 +159,8 @@ export function InteractiveLineChart({
     canvas.addEventListener('mouseleave', handleMouseLeave);
 
     function handleMouseMove(event: MouseEvent) {
+      if (!canvas) return;
+      
       const rect = canvas.getBoundingClientRect();
       const mouseX = event.clientX - rect.left;
       const mouseY = event.clientY - rect.top;
@@ -182,7 +184,7 @@ export function InteractiveLineChart({
           visible: true,
           x: event.clientX,
           y: event.clientY,
-          content: `${formatAge(closestPoint.age)}: ${valueFormatter(closestPoint.value)}`
+          content: `${formatAge((closestPoint as any).age)}: ${valueFormatter((closestPoint as any).value)}`
         });
       } else {
         setTooltip(prev => ({ ...prev, visible: false }));
@@ -263,12 +265,6 @@ export function MultiLineChart({
   className = ''
 }: MultiLineChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [tooltip, setTooltip] = useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-    content: string;
-  }>({ visible: false, x: 0, y: 0, content: '' });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -323,7 +319,7 @@ export function MultiLineChart({
     }
 
     // Draw each dataset
-    datasets.forEach((dataset, datasetIndex) => {
+    datasets.forEach((dataset) => {
       if (dataset.data.length === 0) return;
 
       const points = dataset.data.map((point, index) => {
@@ -406,20 +402,6 @@ export function MultiLineChart({
               <span className="text-gray-700">{dataset.label}</span>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Tooltip */}
-      {tooltip.visible && (
-        <div
-          className="fixed z-50 bg-gray-900 text-white px-2 py-1 rounded text-sm pointer-events-none"
-          style={{
-            left: tooltip.x + 10,
-            top: tooltip.y - 30,
-            transform: 'translateX(-50%)'
-          }}
-        >
-          {tooltip.content}
         </div>
       )}
     </div>

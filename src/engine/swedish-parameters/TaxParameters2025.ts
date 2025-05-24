@@ -3,7 +3,7 @@
 // Based on official sources and the specification document
 // ============================================================================
 
-import { SwedishTaxParameters2025, MacroeconomicAssumptions } from '../types';
+import { SwedishTaxParameters2025, MacroeconomicAssumptions } from '../../types';
 
 export const SWEDISH_TAX_PARAMETERS_2025: SwedishTaxParameters2025 = {
   inkomstBasbelopp: 80600, // kr per year

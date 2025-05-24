@@ -20,6 +20,7 @@ import {
 
 import { useSimulation, useSimulationSummary, useChartData } from './hooks/useSimulation';
 import { formatCurrency, formatPercentage, formatAge, formatSimulationYear } from './utils/formatters';
+import { InteractiveLineChart, MultiLineChart, InteractiveBarChart } from './components/common/InteractiveCharts';
 
 function App() {
   const simulation = useSimulation();
@@ -325,21 +326,58 @@ function App() {
                   </div>
                 </div>
 
-                {/* Simple Chart Placeholder */}
+                {/* Interactive Charts */}
                 {simulation.projections.length > 0 && (
-                  <div className="card">
-                    <h3 className="text-lg font-semibold mb-4">Nettoförmögenhet över tid</h3>
-                    <div className="h-64 bg-gray-50 rounded-lg flex items-center justify-center">
-                      <div className="text-center">
-                        <BarChart3 className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-                        <p className="text-gray-500">
-                          Graf kommer här (implementeras med chart library)
-                        </p>
-                        <p className="text-sm text-gray-400 mt-2">
-                          {simulation.projections.length} datapunkter från {formatAge(simulation.inputs.profile.currentAge)} till {formatAge(simulation.projections[simulation.projections.length - 1].age)}
-                        </p>
-                      </div>
-                    </div>
+                  <div className="space-y-6">
+                    {/* Net Worth Chart */}
+                    <InteractiveLineChart
+                      data={chartData.netWorthData}
+                      title="Nettoförmögenhet över tid"
+                      height={300}
+                      color="#4F46E5"
+                      fillColor="rgba(79, 70, 229, 0.1)"
+                      valueFormatter={(value) => formatCurrency(value, { compact: true })}
+                    />
+                    
+                    {/* Cash Flow Chart */}
+                    <InteractiveLineChart
+                      data={chartData.cashFlowData}
+                      title="Årligt sparande (kassaflöde)"
+                      height={250}
+                      color="#059669"
+                      fillColor="rgba(5, 150, 105, 0.1)"
+                      valueFormatter={(value) => formatCurrency(value, { compact: true })}
+                    />
+                    
+                    {/* Income vs Expenses Multi-line Chart */}
+                    <MultiLineChart
+                      datasets={[
+                        {
+                          label: 'Nettoinkomst',
+                          data: chartData.incomeExpenseData.map(d => ({
+                            year: d.year,
+                            age: d.age,
+                            value: d.netIncome,
+                            label: d.label
+                          })),
+                          color: '#059669',
+                          fillColor: 'rgba(5, 150, 105, 0.05)'
+                        },
+                        {
+                          label: 'Utgifter',
+                          data: chartData.incomeExpenseData.map(d => ({
+                            year: d.year,
+                            age: d.age,
+                            value: d.expenses,
+                            label: d.label
+                          })),
+                          color: '#DC2626'
+                        }
+                      ]}
+                      title="Inkomst vs Utgifter"
+                      height={280}
+                      valueFormatter={(value) => formatCurrency(value, { compact: true })}
+                    />
                   </div>
                 )}
               </div>
@@ -434,8 +472,47 @@ function App() {
 
             {/* Calculations Tab */}
             {activeTab === 'calculations' && (
-              <div className="card">
-                <h3 className="text-lg font-semibold mb-4">Beräkningsdetaljer</h3>
+              <div className="space-y-6">
+                {/* Tax Breakdown Chart */}
+                {simulation.projections.length > 0 && (() => {
+                  const currentProjection = simulation.projections[0];
+                  if (!currentProjection) return null;
+                  
+                  const taxBreakdownData = [
+                    {
+                      label: 'Kommunalskatt',
+                      value: currentProjection.calculations.municipalTax,
+                      color: '#DC2626'
+                    },
+                    {
+                      label: 'Statlig skatt',
+                      value: currentProjection.calculations.stateTax,
+                      color: '#7C2D12'
+                    },
+                    {
+                      label: 'ISK-skatt',
+                      value: currentProjection.calculations.iskTax,
+                      color: '#B91C1C'
+                    },
+                    {
+                      label: 'Pensionsavgift',
+                      value: currentProjection.calculations.pensionFee,
+                      color: '#991B1B'
+                    }
+                  ];
+                  
+                  return (
+                    <InteractiveBarChart
+                      data={taxBreakdownData}
+                      title={`Skattefördelning ${formatSimulationYear(0, currentYear)}`}
+                      height={200}
+                      valueFormatter={(value) => formatCurrency(value)}
+                    />
+                  );
+                })()}
+                
+                <div className="card">
+                  <h3 className="text-lg font-semibold mb-4">Beräkningsdetaljer</h3>
                 
                 {simulation.projections.length > 0 ? (
                   <div className="space-y-6">
@@ -526,6 +603,7 @@ function App() {
                     Kör simulationen för att se beräkningsdetaljer
                   </div>
                 )}
+                </div>
               </div>
             )}
           </div>

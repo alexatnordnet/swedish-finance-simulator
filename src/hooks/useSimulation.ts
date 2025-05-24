@@ -262,26 +262,34 @@ export function useSimulationSummary(projections: MVPYearProjection[], inputs: M
 // Hook for chart data formatting
 export function useChartData(projections: MVPYearProjection[]) {
   return useMemo(() => {
+    if (projections.length === 0) {
+      return {
+        netWorthData: [],
+        cashFlowData: [],
+        incomeExpenseData: []
+      };
+    }
+
     const netWorthData = projections.map(p => ({
       year: p.year,
       age: p.age,
-      value: p.netWorth,
+      value: p.netWorth || 0,
       label: `År ${p.year} (${p.age} år)`
     }));
 
     const cashFlowData = projections.map(p => ({
       year: p.year,
       age: p.age,
-      value: p.savings,
+      value: p.savings || 0,
       label: `År ${p.year} (${p.age} år)`
     }));
 
     const incomeExpenseData = projections.map(p => ({
       year: p.year,
       age: p.age,
-      salary: p.salary,
-      expenses: p.expenses,
-      netIncome: p.calculations.netIncome,
+      salary: p.salary || 0,
+      expenses: p.expenses || 0,
+      netIncome: p.calculations?.netIncome || 0,
       label: `År ${p.year} (${p.age} år)`
     }));
 

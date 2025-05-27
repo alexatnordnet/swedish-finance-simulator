@@ -12,6 +12,8 @@ export { IncomeInputs } from './forms/IncomeInputs';
 export { ExpenseInputs } from './forms/ExpenseInputs';
 export { AssetInputs } from './forms/AssetInputs';
 export { PensionInputs } from './forms/PensionInputs';
+export { InvestmentAssumptions } from './forms/InvestmentAssumptions';
+export type { InvestmentRates } from './forms/InvestmentAssumptions';
 
 // Tab components
 export { OverviewTab } from './tabs/OverviewTab';

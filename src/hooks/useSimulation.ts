@@ -14,6 +14,7 @@ import {
 } from '../types';
 import { simulationEngine } from '../engine/core/SimulationEngine';
 import { debounce } from '../utils/formatters';
+import { DEFAULT_INVESTMENT_ASSUMPTIONS } from '../engine/swedish-parameters/TaxParameters2025';
 
 interface SimulationState {
   inputs: MVPSimulationInputs;
@@ -50,6 +51,10 @@ const DEFAULT_INPUTS: MVPSimulationInputs = {
   assets: {
     liquidSavings: 100000,
     iskAccount: 200000
+  },
+  investments: {
+    liquidSavingsRate: DEFAULT_INVESTMENT_ASSUMPTIONS.liquidSavingsRate,
+    iskAccountRate: DEFAULT_INVESTMENT_ASSUMPTIONS.iskAccountRate
   }
 };
 

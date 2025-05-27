@@ -60,6 +60,8 @@ function App() {
               onUpdateExpenses={simulation.updateExpenses}
               onUpdateAssets={simulation.updateAssets}
               onUpdatePensions={simulation.updatePensions}
+              investmentRates={simulation.investmentRates}
+              onUpdateInvestmentRates={simulation.updateInvestmentRates}
             />
           </div>
 

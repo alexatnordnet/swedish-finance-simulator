@@ -11,9 +11,92 @@ import {
 } from '../../types/pension';
 import { taxCalculator } from '../modules/TaxCalculator';
 import { MACROECONOMIC_ASSUMPTIONS } from '../swedish-parameters/TaxParameters2025';
+import { InvestmentRates } from '../../components';
 
 export class EnhancedSimulationEngine {
   private readonly assumptions = MACROECONOMIC_ASSUMPTIONS;
+
+  /**
+   * Run the complete simulation with pension support and custom investment rates
+   */
+  runEnhancedSimulationWithRates(
+    inputs: EnhancedSimulationInputs, 
+    investmentRates: InvestmentRates
+  ): EnhancedYearProjection[] {
+    const results: EnhancedYearProjection[] = [];
+    const lifeExpectancy = this.assumptions.lifeExpectancy[
+      inputs.profile.gender === 'man' ? 'male' : 'female'
+    ];
+    
+    // Validate investment rates to prevent extreme calculations
+    const safeLiquidRate = Math.max(-0.1, Math.min(0.2, investmentRates.liquidSavingsRate));
+    const safeISKRate = Math.max(-0.5, Math.min(0.5, investmentRates.iskAccountRate));
+    
+    if (safeLiquidRate !== investmentRates.liquidSavingsRate) {
+      console.warn(`Liquid savings rate capped from ${investmentRates.liquidSavingsRate} to ${safeLiquidRate}`);
+    }
+    if (safeISKRate !== investmentRates.iskAccountRate) {
+      console.warn(`ISK rate capped from ${investmentRates.iskAccountRate} to ${safeISKRate}`);
+    }
+    
+    // Initialize state variables with proper validation
+    let currentSalary = this.safeNumber(inputs.income.monthlySalary * 12);
+    let liquidAssets = this.safeNumber(inputs.assets.liquidSavings);
+    let iskAccount = this.safeNumber(inputs.assets.iskAccount);
+    
+    // Initialize pension capitals (they grow until withdrawal)
+    let generalPensionCapital = this.safeNumber(
+      inputs.pensions.generalPension.currentInkomstpension + 
+      inputs.pensions.generalPension.currentPremiepension
+    );
+    let pensionAccounts = [...inputs.pensions.accounts];
+    
+    // Run simulation year by year
+    for (let year = 0; year <= lifeExpectancy - inputs.profile.currentAge; year++) {
+      const age = inputs.profile.currentAge + year;
+      const isRetired = age >= inputs.profile.desiredRetirementAge;
+      
+      const yearProjection = this.simulateEnhancedYearWithRates({
+        year,
+        age,
+        isRetired,
+        currentSalary: isRetired ? 0 : currentSalary,
+        liquidAssets,
+        iskAccount,
+        monthlyExpenses: this.safeNumber(inputs.expenses.monthlyLiving),
+        generalPensionCapital,
+        pensionAccounts,
+        pensionSettings: inputs.pensions,
+        investmentRates: { liquidSavingsRate: safeLiquidRate, iskAccountRate: safeISKRate }
+      });
+      
+      results.push(yearProjection);
+      
+      // Debugging: Log first few years to understand the growth pattern
+      if (year <= 5) {
+        console.log(`Year ${year}: Liquid=${liquidAssets.toFixed(0)}, ISK=${iskAccount.toFixed(0)}, CashFlow=${yearProjection.calculations.cashFlow.toFixed(0)}, NetWorth=${yearProjection.netWorth.toFixed(0)}`);
+      }
+      
+      // Update state for next year with safe math and custom rates
+      // First apply investment growth to existing assets
+      liquidAssets = this.safeNumber(liquidAssets * (1 + safeLiquidRate));
+      iskAccount = this.safeNumber(iskAccount * (1 + safeISKRate));
+      
+      // Then add the cash flow from this year
+      liquidAssets = Math.max(0, this.safeNumber(liquidAssets + yearProjection.calculations.cashFlow));
+      
+      // Update pension capitals
+      generalPensionCapital = this.safeNumber(yearProjection.pensionCapital.general);
+      pensionAccounts = this.updatePensionAccounts(pensionAccounts, age);
+      
+      // Salary grows with real salary growth (if not retired)
+      if (!isRetired) {
+        currentSalary = this.safeNumber(currentSalary * (1 + inputs.income.realSalaryGrowth));
+      }
+    }
+    
+    return results;
+  }
 
   /**
    * Run the complete simulation with pension support
@@ -71,6 +154,105 @@ export class EnhancedSimulationEngine {
     }
     
     return results;
+  }
+
+  /**
+   * Simulate a single year with pension calculations and custom rates
+   */
+  private simulateEnhancedYearWithRates(yearInputs: {
+    year: number;
+    age: number;
+    isRetired: boolean;
+    currentSalary: number;
+    liquidAssets: number;
+    iskAccount: number;
+    monthlyExpenses: number;
+    generalPensionCapital: number;
+    pensionAccounts: PensionAccount[];
+    pensionSettings: PensionSettings;
+    investmentRates: InvestmentRates;
+  }): EnhancedYearProjection {
+    
+    const { 
+    year, age, currentSalary, liquidAssets, iskAccount, 
+    monthlyExpenses, generalPensionCapital, pensionAccounts, pensionSettings 
+    } = yearInputs;
+    
+    // Calculate pension income for this year
+    const pensionIncome = this.calculatePensionIncome(
+      age, 
+      generalPensionCapital, 
+      pensionAccounts, 
+      pensionSettings
+    );
+    
+    // Total income includes salary + pension
+    const salaryIncome = this.safeNumber(currentSalary);
+    const pensionYearlyIncome = this.safeNumber(pensionIncome.total * 12);
+    const totalGrossIncome = salaryIncome + pensionYearlyIncome;
+    
+    // Calculate taxes on total income
+    const taxResult = taxCalculator.calculateYearlyTax({
+      grossSalary: totalGrossIncome,
+      age,
+      iskCapital: this.safeNumber(iskAccount),
+      kfCapital: 0,
+    });
+    
+    // Calculate yearly expenses
+    const yearlyExpenses = this.safeNumber(monthlyExpenses * 12);
+    
+    // Calculate cash flow
+    const netIncome = this.safeNumber(taxResult.netIncome);
+    const cashFlow = netIncome - yearlyExpenses;
+    
+    // Update pension capital (subtract withdrawals, add growth if not withdrawing)
+    const updatedPensionCapital = this.updatePensionCapital(
+      age,
+      generalPensionCapital,
+      pensionAccounts,
+      pensionSettings,
+      pensionIncome
+    );
+    
+    // Calculate net worth with safe math
+    const totalPensionCapital = this.safeNumber(
+      updatedPensionCapital.general + 
+      updatedPensionCapital.occupational + 
+      updatedPensionCapital.private
+    );
+    
+    const netWorth = Math.max(0, 
+      this.safeNumber(liquidAssets) + 
+      this.safeNumber(iskAccount) + 
+      totalPensionCapital
+    );
+    
+    return {
+      year,
+      age,
+      salary: salaryIncome,
+      expenses: yearlyExpenses,
+      savings: cashFlow,
+      netWorth: this.safeNumber(netWorth),
+      calculations: {
+        grossIncome: totalGrossIncome,
+        pensionFee: this.safeNumber(salaryIncome * 0.07), // Only on salary
+        municipalTax: this.safeNumber(taxResult.municipalTax),
+        stateTax: this.safeNumber(taxResult.stateTax),
+        iskTax: this.safeNumber(taxResult.iskTax),
+        totalTax: this.safeNumber(taxResult.totalTax),
+        netIncome,
+        cashFlow
+      },
+      pensionIncome,
+      pensionCapital: {
+        general: this.safeNumber(updatedPensionCapital.general),
+        occupational: this.safeNumber(updatedPensionCapital.occupational),
+        private: this.safeNumber(updatedPensionCapital.private),
+        total: totalPensionCapital
+      }
+    };
   }
 
   /**
@@ -141,8 +323,7 @@ export class EnhancedSimulationEngine {
     const netWorth = Math.max(0, 
       this.safeNumber(liquidAssets) + 
       this.safeNumber(iskAccount) + 
-      totalPensionCapital + 
-      this.safeNumber(cashFlow)
+      totalPensionCapital
     );
     
     return {
@@ -313,6 +494,14 @@ export class EnhancedSimulationEngine {
     if (value === null || value === undefined || isNaN(value) || !isFinite(value)) {
       return 0;
     }
+    
+    // Prevent extreme values that indicate calculation errors
+    const MAX_REASONABLE_VALUE = 1e12; // 1 trillion SEK
+    if (Math.abs(value) > MAX_REASONABLE_VALUE) {
+      console.warn(`Extreme value detected: ${value}. Capping at reasonable limit.`);
+      return value > 0 ? MAX_REASONABLE_VALUE : -MAX_REASONABLE_VALUE;
+    }
+    
     return value;
   }
 
@@ -363,6 +552,21 @@ export class EnhancedSimulationEngine {
     
     if (inputs.profile.desiredRetirementAge <= inputs.profile.currentAge) {
       errors.push("Pensionsålder måste vara högre än nuvarande ålder");
+    }
+
+    // Investment rate validations (values are in decimal form internally)
+    if (inputs.investments) {
+      if (inputs.investments.liquidSavingsRate < -0.1 || inputs.investments.liquidSavingsRate > 0.2) {
+        warnings.push("Avkastning på likvida medel verkar orealistisk (bör vara mellan -10% och 20%)");
+      }
+      
+      if (inputs.investments.iskAccountRate < -0.5 || inputs.investments.iskAccountRate > 0.5) {
+        errors.push("Avkastning på ISK-konto måste vara mellan -50% och 50%");
+      }
+      
+      if (inputs.investments.iskAccountRate > 0.15) {
+        warnings.push("Hög förväntad avkastning på ISK-konto (över 15% årligen) - överväg mer konservativa antaganden");
+      }
     }
 
     // Pension-specific validations

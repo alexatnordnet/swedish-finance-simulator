@@ -4,6 +4,7 @@ import { IncomeInputs } from './IncomeInputs';
 import { ExpenseInputs } from './ExpenseInputs';
 import { AssetInputs } from './AssetInputs';
 import { PensionInputs } from './PensionInputs';
+import { InvestmentAssumptions, InvestmentRates } from './InvestmentAssumptions';
 
 // Import types from the enhanced simulation
 import { EnhancedSimulationInputs } from '../../types/pension';
@@ -24,6 +25,8 @@ interface InputPanelProps {
   onUpdateExpenses: (updates: Partial<MVPExpenseData>) => void;
   onUpdateAssets: (updates: Partial<MVPAssetData>) => void;
   onUpdatePensions: (pensions: PensionSettings) => void;
+  investmentRates: InvestmentRates;
+  onUpdateInvestmentRates: (updates: Partial<InvestmentRates>) => void;
 }
 
 export function InputPanel({
@@ -32,7 +35,9 @@ export function InputPanel({
   onUpdateIncome,
   onUpdateExpenses,
   onUpdateAssets,
-  onUpdatePensions
+  onUpdatePensions,
+  investmentRates,
+  onUpdateInvestmentRates
 }: InputPanelProps) {
   return (
     <div className="card">
@@ -66,6 +71,11 @@ export function InputPanel({
           pensions={inputs.pensions}
           onUpdate={onUpdatePensions}
           userAge={inputs.profile.currentAge}
+        />
+        
+        <InvestmentAssumptions 
+          rates={investmentRates}
+          onUpdate={onUpdateInvestmentRates}
         />
       </div>
     </div>

@@ -114,6 +114,15 @@ export const BASIC_DEDUCTION_2025 = {
   },
 };
 
+// Default investment assumptions for user input
+export const DEFAULT_INVESTMENT_ASSUMPTIONS = {
+  liquidSavingsRate: 0.005, // 0.5% real return on bank accounts (often negative in real terms)
+  iskAccountRate: 0.035,    // 3.5% real return (mixed portfolio assumption)
+  capitalInsuranceRate: 0.035, // 3.5% real return (similar to ISK)
+  traditionalDepotRate: 0.045, // 4.5% real return (pure stocks assumption)
+  propertyAppreciation: 0.02,   // 2.0% real property appreciation
+};
+
 // Utility function to get riktålder by birth year
 export function getRiktÅlder(birthYear: number): number {
   const riktÅlder = PENSION_PARAMETERS_2025.riktÅlder;

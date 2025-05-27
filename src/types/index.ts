@@ -177,6 +177,14 @@ export interface MacroeconomicAssumptions {
   };
 }
 
+export interface InvestmentAssumptions {
+  liquidSavingsRate: number; // Expected return on bank accounts/cash
+  iskAccountRate: number; // Expected return on ISK account investments
+  capitalInsuranceRate: number; // Expected return on capital insurance
+  traditionalDepotRate: number; // Expected return on traditional depot
+  propertyAppreciation: number; // Expected annual property value growth
+}
+
 export interface SwedishTaxParameters2025 {
   inkomstBasbelopp: number; // 80,600 kr
   prisBasbelopp: number; // 58,800 kr
@@ -297,11 +305,17 @@ export interface MVPAssetData {
   iskAccount: number;
 }
 
+export interface MVPInvestmentAssumptions {
+  liquidSavingsRate: number;
+  iskAccountRate: number;
+}
+
 export interface MVPSimulationInputs {
   profile: MVPUserProfile;
   income: MVPIncomeData;
   expenses: MVPExpenseData;
   assets: MVPAssetData;
+  investments: MVPInvestmentAssumptions;
 }
 
 export interface MVPYearProjection {

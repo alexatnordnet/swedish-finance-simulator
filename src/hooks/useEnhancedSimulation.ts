@@ -18,9 +18,12 @@ import {
 } from '../types/pension';
 import { enhancedSimulationEngine } from '../engine/core/EnhancedSimulationEngine';
 import { debounce } from '../utils/formatters';
+import { InvestmentRates } from '../components';
+import { DEFAULT_INVESTMENT_ASSUMPTIONS } from '../engine/swedish-parameters/TaxParameters2025';
 
 interface EnhancedSimulationState {
   inputs: EnhancedSimulationInputs;
+  investmentRates: InvestmentRates;
   projections: EnhancedYearProjection[];
   isCalculating: boolean;
   lastCalculated: Date | null;
@@ -34,6 +37,7 @@ interface EnhancedSimulationActions {
   updateExpenses: (expenses: Partial<MVPExpenseData>) => void;
   updateAssets: (assets: Partial<MVPAssetData>) => void;
   updatePensions: (pensions: PensionSettings) => void;
+  updateInvestmentRates: (rates: Partial<InvestmentRates>) => void;
   runSimulation: () => void;
   resetToDefaults: () => void;
   exportData: () => void;
@@ -56,6 +60,10 @@ const DEFAULT_ENHANCED_INPUTS: EnhancedSimulationInputs = {
     liquidSavings: 100000,
     iskAccount: 200000
   },
+  investments: {
+    liquidSavingsRate: DEFAULT_INVESTMENT_ASSUMPTIONS.liquidSavingsRate,
+    iskAccountRate: DEFAULT_INVESTMENT_ASSUMPTIONS.iskAccountRate
+  },
   pensions: {
     ...DEFAULT_PENSION_SETTINGS,
     generalPension: {
@@ -67,9 +75,15 @@ const DEFAULT_ENHANCED_INPUTS: EnhancedSimulationInputs = {
   }
 };
 
+const DEFAULT_INVESTMENT_RATES: InvestmentRates = {
+  liquidSavingsRate: DEFAULT_INVESTMENT_ASSUMPTIONS.liquidSavingsRate, // Already in decimal form (0.005)
+  iskAccountRate: DEFAULT_INVESTMENT_ASSUMPTIONS.iskAccountRate       // Already in decimal form (0.035)
+};
+
 export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimulationActions {
   const [state, setState] = useState<EnhancedSimulationState>({
     inputs: DEFAULT_ENHANCED_INPUTS,
+    investmentRates: DEFAULT_INVESTMENT_RATES,
     projections: [],
     isCalculating: false,
     lastCalculated: null,
@@ -87,8 +101,11 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
         const validation = enhancedSimulationEngine.validateEnhancedInputs(state.inputs);
         
         if (validation.isValid) {
-          // Run enhanced simulation
-          const projections = enhancedSimulationEngine.runEnhancedSimulation(state.inputs);
+          // Run enhanced simulation with custom investment rates
+          const projections = enhancedSimulationEngine.runEnhancedSimulationWithRates(
+            state.inputs, 
+            state.investmentRates
+          );
           
           setState(prev => ({
             ...prev,
@@ -115,7 +132,7 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
         }));
       }
     }, 500),
-    [state.inputs]
+    [state.inputs, state.investmentRates]
   );
 
   // Auto-calculate when inputs change
@@ -173,6 +190,23 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
     }));
   }, []);
 
+  const updateInvestmentRates = useCallback((rates: Partial<InvestmentRates>) => {
+    // Convert percentage input to decimal for internal calculations
+    const convertedRates: Partial<InvestmentRates> = {};
+    
+    if (rates.liquidSavingsRate !== undefined) {
+      convertedRates.liquidSavingsRate = rates.liquidSavingsRate / 100;
+    }
+    if (rates.iskAccountRate !== undefined) {
+      convertedRates.iskAccountRate = rates.iskAccountRate / 100;
+    }
+    
+    setState(prev => ({
+      ...prev,
+      investmentRates: { ...prev.investmentRates, ...convertedRates }
+    }));
+  }, []);
+
   const runSimulation = useCallback(() => {
     debouncedCalculation();
   }, [debouncedCalculation]);
@@ -180,6 +214,7 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
   const resetToDefaults = useCallback(() => {
     setState({
       inputs: DEFAULT_ENHANCED_INPUTS,
+      investmentRates: DEFAULT_INVESTMENT_RATES,
       projections: [],
       isCalculating: false,
       lastCalculated: null,
@@ -244,6 +279,7 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
     updateExpenses,
     updateAssets,
     updatePensions,
+    updateInvestmentRates,
     runSimulation,
     resetToDefaults,
     exportData

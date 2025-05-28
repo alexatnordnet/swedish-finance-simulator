@@ -85,7 +85,7 @@ export function ProjectionsTab({
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {projections.slice(0, 20).map((projection) => (
+            {projections.map((projection) => (
               <tr key={projection.year} className={
                 projection.age === desiredRetirementAge 
                   ? 'bg-yellow-50' 
@@ -121,12 +121,7 @@ export function ProjectionsTab({
             ))}
           </tbody>
         </table>
-        
-        {projections.length > 20 && (
-          <div className="text-center py-4 text-sm text-gray-500">
-            Visar första 20 åren av {projections.length} totalt
-          </div>
-        )}
+
       </div>
     </div>
   );

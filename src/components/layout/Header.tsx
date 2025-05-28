@@ -6,13 +6,16 @@ interface HeaderProps {
   onExportData: () => void;
   onResetToDefaults: () => void;
   lastCalculated?: Date | null;
+  hasLocalStorageSupport?: boolean;
 }
 
 export function Header({ 
   showCalculations, 
   onToggleCalculations, 
   onExportData, 
-  onResetToDefaults
+  onResetToDefaults,
+  lastCalculated,
+  hasLocalStorageSupport = false
 }: HeaderProps) {
   return (
     <header className="bg-white shadow-sm border-b">
@@ -54,6 +57,13 @@ export function Header({
             >
               Återställ
             </button>
+            
+            {/* Auto-save indicator */}
+            {hasLocalStorageSupport && lastCalculated && (
+              <div className="text-xs text-gray-400">
+                Automatiskt sparad: {lastCalculated.toLocaleString('sv-SE')}
+              </div>
+            )}
           </div>
         </div>
       </div>

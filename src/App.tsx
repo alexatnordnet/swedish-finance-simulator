@@ -40,6 +40,7 @@ function App() {
         onExportData={simulation.exportData}
         onResetToDefaults={simulation.resetToDefaults}
         lastCalculated={simulation.lastCalculated}
+        hasLocalStorageSupport={simulation.hasLocalStorageSupport}
       />
 
       {/* Alerts */}

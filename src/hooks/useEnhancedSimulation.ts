@@ -18,6 +18,13 @@ import {
 } from '../types/pension';
 import { enhancedSimulationEngine } from '../engine/core/EnhancedSimulationEngine';
 import { debounce } from '../utils/formatters';
+import { 
+  saveToLocalStorage, 
+  loadFromLocalStorage, 
+  clearLocalStorage, 
+  isLocalStorageAvailable,
+  getLastSavedTimestamp 
+} from '../utils/localStorage';
 import { InvestmentRates } from '../components';
 import { DEFAULT_INVESTMENT_ASSUMPTIONS } from '../engine/swedish-parameters/TaxParameters2025';
 
@@ -41,6 +48,7 @@ interface EnhancedSimulationActions {
   runSimulation: () => void;
   resetToDefaults: () => void;
   exportData: () => void;
+  hasLocalStorageSupport: boolean;
 }
 
 const DEFAULT_ENHANCED_INPUTS: EnhancedSimulationInputs = {
@@ -80,8 +88,23 @@ const DEFAULT_INVESTMENT_RATES: InvestmentRates = {
   iskAccountRate: DEFAULT_INVESTMENT_ASSUMPTIONS.iskAccountRate       // Already in decimal form (0.035)
 };
 
-export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimulationActions {
-  const [state, setState] = useState<EnhancedSimulationState>({
+// Initialize state with data from localStorage if available
+function initializeState(): EnhancedSimulationState {
+  const savedData = loadFromLocalStorage();
+  
+  if (savedData) {
+    return {
+      inputs: savedData.inputs,
+      investmentRates: savedData.investmentRates,
+      projections: [],
+      isCalculating: false,
+      lastCalculated: getLastSavedTimestamp(),
+      warnings: [],
+      errors: []
+    };
+  }
+  
+  return {
     inputs: DEFAULT_ENHANCED_INPUTS,
     investmentRates: DEFAULT_INVESTMENT_RATES,
     projections: [],
@@ -89,7 +112,11 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
     lastCalculated: null,
     warnings: [],
     errors: []
-  });
+  };
+}
+
+export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimulationActions {
+  const [state, setState] = useState<EnhancedSimulationState>(initializeState);
 
   // Debounced calculation
   const debouncedCalculation = useMemo(
@@ -141,53 +168,98 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
   }, [debouncedCalculation]);
 
   const updateProfile = useCallback((profile: Partial<MVPUserProfile>) => {
-    setState(prev => ({
-      ...prev,
-      inputs: {
-        ...prev.inputs,
-        profile: { ...prev.inputs.profile, ...profile }
+    setState(prev => {
+      const newState = {
+        ...prev,
+        inputs: {
+          ...prev.inputs,
+          profile: { ...prev.inputs.profile, ...profile }
+        }
+      };
+      
+      // Auto-save after update
+      if (isLocalStorageAvailable()) {
+        saveToLocalStorage(newState.inputs, prev.investmentRates);
       }
-    }));
+      
+      return newState;
+    });
   }, []);
 
   const updateIncome = useCallback((income: Partial<MVPIncomeData>) => {
-    setState(prev => ({
-      ...prev,
-      inputs: {
-        ...prev.inputs,
-        income: { ...prev.inputs.income, ...income }
+    setState(prev => {
+      const newState = {
+        ...prev,
+        inputs: {
+          ...prev.inputs,
+          income: { ...prev.inputs.income, ...income }
+        }
+      };
+      
+      // Auto-save after update
+      if (isLocalStorageAvailable()) {
+        saveToLocalStorage(newState.inputs, prev.investmentRates);
       }
-    }));
+      
+      return newState;
+    });
   }, []);
 
   const updateExpenses = useCallback((expenses: Partial<MVPExpenseData>) => {
-    setState(prev => ({
-      ...prev,
-      inputs: {
-        ...prev.inputs,
-        expenses: { ...prev.inputs.expenses, ...expenses }
+    setState(prev => {
+      const newState = {
+        ...prev,
+        inputs: {
+          ...prev.inputs,
+          expenses: { ...prev.inputs.expenses, ...expenses }
+        }
+      };
+      
+      // Auto-save after update
+      if (isLocalStorageAvailable()) {
+        saveToLocalStorage(newState.inputs, prev.investmentRates);
       }
-    }));
+      
+      return newState;
+    });
   }, []);
 
   const updateAssets = useCallback((assets: Partial<MVPAssetData>) => {
-    setState(prev => ({
-      ...prev,
-      inputs: {
-        ...prev.inputs,
-        assets: { ...prev.inputs.assets, ...assets }
+    setState(prev => {
+      const newState = {
+        ...prev,
+        inputs: {
+          ...prev.inputs,
+          assets: { ...prev.inputs.assets, ...assets }
+        }
+      };
+      
+      // Auto-save after update
+      if (isLocalStorageAvailable()) {
+        saveToLocalStorage(newState.inputs, prev.investmentRates);
       }
-    }));
+      
+      return newState;
+    });
   }, []);
 
   const updatePensions = useCallback((pensions: PensionSettings) => {
-    setState(prev => ({
-      ...prev,
-      inputs: {
-        ...prev.inputs,
-        pensions
+    setState(prev => {
+      const newState = {
+        ...prev,
+        inputs: {
+          ...prev.inputs,
+          pensions
+        }
+      };
+      
+      // Auto-save after update
+      if (isLocalStorageAvailable()) {
+        saveToLocalStorage(newState.inputs, prev.investmentRates);
       }
-    }));
+      
+      return newState;
+    });
   }, []);
 
   const updateInvestmentRates = useCallback((rates: Partial<InvestmentRates>) => {
@@ -201,10 +273,19 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
       convertedRates.iskAccountRate = rates.iskAccountRate / 100;
     }
     
-    setState(prev => ({
-      ...prev,
-      investmentRates: { ...prev.investmentRates, ...convertedRates }
-    }));
+    setState(prev => {
+      const newRates = { ...prev.investmentRates, ...convertedRates };
+      
+      // Auto-save after update
+      if (isLocalStorageAvailable()) {
+        saveToLocalStorage(prev.inputs, newRates);
+      }
+      
+      return {
+        ...prev,
+        investmentRates: newRates
+      };
+    });
   }, []);
 
   const runSimulation = useCallback(() => {
@@ -212,6 +293,11 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
   }, [debouncedCalculation]);
 
   const resetToDefaults = useCallback(() => {
+    // Clear localStorage when resetting to defaults
+    if (isLocalStorageAvailable()) {
+      clearLocalStorage();
+    }
+    
     setState({
       inputs: DEFAULT_ENHANCED_INPUTS,
       investmentRates: DEFAULT_INVESTMENT_RATES,
@@ -272,6 +358,8 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
     }
   }, [state.projections]);
 
+  const hasLocalStorageSupport = isLocalStorageAvailable();
+
   return {
     ...state,
     updateProfile,
@@ -282,7 +370,8 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
     updateInvestmentRates,
     runSimulation,
     resetToDefaults,
-    exportData
+    exportData,
+    hasLocalStorageSupport
   };
 }
 

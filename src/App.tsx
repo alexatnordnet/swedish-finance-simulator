@@ -19,7 +19,6 @@ function App() {
   const simulation = useEnhancedSimulation();
   const summary = useEnhancedSimulationSummary(simulation.projections, simulation.inputs);
   const chartData = useEnhancedChartData(simulation.projections);
-  const [showCalculations, setShowCalculations] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
 
   const currentYear = new Date().getFullYear();
@@ -35,8 +34,6 @@ function App() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       {/* Header */}
       <Header
-        showCalculations={showCalculations}
-        onToggleCalculations={() => setShowCalculations(!showCalculations)}
         onExportData={simulation.exportData}
         onResetToDefaults={simulation.resetToDefaults}
         lastCalculated={simulation.lastCalculated}

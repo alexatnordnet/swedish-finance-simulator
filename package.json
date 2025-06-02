@@ -2,7 +2,13 @@
   "name": "swedish-finance-simulator",
   "version": "0.1.0",
   "description": "A comprehensive personal finance lifetime simulator for Swedish conditions",
-  "keywords": ["finance", "sweden", "pension", "simulation", "planning"],
+  "keywords": [
+    "finance",
+    "sweden",
+    "pension",
+    "simulation",
+    "planning"
+  ],
   "author": "Alexander Elin",
   "license": "MIT",
   "homepage": "https://alelin3.github.io/swedish-finance-simulator",
@@ -21,9 +27,9 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
+    "lucide-react": "^0.263.1",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "lucide-react": "^0.263.1"
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.15",
@@ -35,7 +41,6 @@
     "eslint": "^8.45.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.3",
-    "gh-pages": "^5.0.0",
     "postcss": "^8.4.27",
     "tailwindcss": "^3.3.3",
     "typescript": "^5.0.2",

@@ -78,12 +78,34 @@ export class EnhancedSimulationEngine {
       }
       
       // Update state for next year with safe math and custom rates
-      // First apply investment growth to existing assets
-      liquidAssets = this.safeNumber(liquidAssets * (1 + safeLiquidRate));
-      iskAccount = this.safeNumber(iskAccount * (1 + safeISKRate));
+      // Apply the cash flow from this year (positive adds to assets, negative draws from assets)
+      let totalCashFlow = yearProjection.calculations.cashFlow;
       
-      // Then add the cash flow from this year
-      liquidAssets = Math.max(0, this.safeNumber(liquidAssets + yearProjection.calculations.cashFlow));
+      // If cash flow is negative, we need to draw from assets to cover the deficit
+      if (totalCashFlow < 0) {
+        // First draw from liquid assets
+        const liquidDeficit = Math.min(-totalCashFlow, liquidAssets);
+        liquidAssets -= liquidDeficit;
+        totalCashFlow += liquidDeficit;
+        
+        // If still negative, draw from ISK account
+        if (totalCashFlow < 0) {
+          const iskDeficit = Math.min(-totalCashFlow, iskAccount);
+          iskAccount -= iskDeficit;
+          totalCashFlow += iskDeficit;
+        }
+      } else {
+        // Positive cash flow goes to liquid assets
+        liquidAssets += totalCashFlow;
+      }
+      
+      // Apply investment growth to remaining positive assets only
+      if (liquidAssets > 0) {
+        liquidAssets = this.safeNumber(liquidAssets * (1 + safeLiquidRate));
+      }
+      if (iskAccount > 0) {
+        iskAccount = this.safeNumber(iskAccount * (1 + safeISKRate));
+      }
       
       // Update pension capitals
       generalPensionCapital = this.safeNumber(yearProjection.pensionCapital.general);

@@ -36,9 +36,9 @@ export function InvestmentAssumptions({ rates, onUpdate }: InvestmentAssumptions
           </label>
           <input
             type="number"
-            value={rates.liquidSavingsRate * 100}
+            value={Number((rates.liquidSavingsRate * 100).toFixed(1))}
             onChange={(e) => onUpdate({ 
-              liquidSavingsRate: parseFloat(e.target.value) || 0 
+              liquidSavingsRate: (parseFloat(e.target.value) || 0) / 100
             })}
             className="input-field"
             min="-10"
@@ -58,9 +58,9 @@ export function InvestmentAssumptions({ rates, onUpdate }: InvestmentAssumptions
           </label>
           <input
             type="number"
-            value={rates.iskAccountRate * 100}
+            value={Number((rates.iskAccountRate * 100).toFixed(1))}
             onChange={(e) => onUpdate({ 
-              iskAccountRate: parseFloat(e.target.value) || 0 
+              iskAccountRate: (parseFloat(e.target.value) || 0) / 100
             })}
             className="input-field"
             min="-50"

@@ -1,32 +1,32 @@
 // ============================================================================
-// ENHANCED SIMULATION HOOK WITH PENSION SUPPORT
-// React hook for managing enhanced simulation state including pensions
+// ENHANCED SIMULATION HOOK WITH UNIFIED ENGINE
+// Updated to use the new UnifiedSimulationEngine
 // ============================================================================
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
-import { 
+import { useState, useCallback, useMemo, useEffect } from "react";
+import {
   MVPUserProfile,
   MVPIncomeData,
   MVPExpenseData,
-  MVPAssetData
-} from '../types';
-import { 
-  PensionSettings, 
+  MVPAssetData,
+} from "../types";
+import {
+  PensionSettings,
   EnhancedSimulationInputs,
   EnhancedYearProjection,
-  DEFAULT_PENSION_SETTINGS 
-} from '../types/pension';
-import { enhancedSimulationEngine } from '../engine/core/EnhancedSimulationEngine';
-import { debounce } from '../utils/formatters';
-import { 
-  saveToLocalStorage, 
-  loadFromLocalStorage, 
-  clearLocalStorage, 
+  DEFAULT_PENSION_SETTINGS,
+} from "../types/pension";
+import { financialSimulationEngine } from "../engine/core/FinancialSimulationEngine";
+import { debounce } from "../utils/formatters";
+import {
+  saveToLocalStorage,
+  loadFromLocalStorage,
+  clearLocalStorage,
   isLocalStorageAvailable,
-  getLastSavedTimestamp 
-} from '../utils/localStorage';
-import { InvestmentRates } from '../components';
-import { DEFAULT_INVESTMENT_ASSUMPTIONS } from '../engine/swedish-parameters/TaxParameters2025';
+  getLastSavedTimestamp,
+} from "../utils/localStorage";
+import { InvestmentRates } from "../components";
+import { DEFAULT_INVESTMENT_ASSUMPTIONS } from "../engine/swedish-parameters/TaxParameters2025";
 
 interface EnhancedSimulationState {
   inputs: EnhancedSimulationInputs;
@@ -54,23 +54,23 @@ interface EnhancedSimulationActions {
 const DEFAULT_ENHANCED_INPUTS: EnhancedSimulationInputs = {
   profile: {
     currentAge: 30,
-    gender: 'kvinna',
-    desiredRetirementAge: 65
+    gender: "kvinna",
+    desiredRetirementAge: 65,
   },
   income: {
     monthlySalary: 45000,
-    realSalaryGrowth: 0.016
+    realSalaryGrowth: 0.016,
   },
   expenses: {
-    monthlyLiving: 25000
+    monthlyLiving: 25000,
   },
   assets: {
     liquidSavings: 100000,
-    iskAccount: 200000
+    iskAccount: 200000,
   },
   investments: {
     liquidSavingsRate: DEFAULT_INVESTMENT_ASSUMPTIONS.liquidSavingsRate,
-    iskAccountRate: DEFAULT_INVESTMENT_ASSUMPTIONS.iskAccountRate
+    iskAccountRate: DEFAULT_INVESTMENT_ASSUMPTIONS.iskAccountRate,
   },
   pensions: {
     ...DEFAULT_PENSION_SETTINGS,
@@ -78,20 +78,20 @@ const DEFAULT_ENHANCED_INPUTS: EnhancedSimulationInputs = {
       currentInkomstpension: 0,
       currentPremiepension: 0,
       estimatedMonthlyAmount: 15000,
-      withdrawalStartAge: 65
-    }
-  }
+      withdrawalStartAge: 65,
+    },
+  },
 };
 
 const DEFAULT_INVESTMENT_RATES: InvestmentRates = {
-  liquidSavingsRate: DEFAULT_INVESTMENT_ASSUMPTIONS.liquidSavingsRate, // Already in decimal form (0.005)
-  iskAccountRate: DEFAULT_INVESTMENT_ASSUMPTIONS.iskAccountRate       // Already in decimal form (0.035)
+  liquidSavingsRate: DEFAULT_INVESTMENT_ASSUMPTIONS.liquidSavingsRate,
+  iskAccountRate: DEFAULT_INVESTMENT_ASSUMPTIONS.iskAccountRate,
 };
 
 // Initialize state with data from localStorage if available
 function initializeState(): EnhancedSimulationState {
   const savedData = loadFromLocalStorage();
-  
+
   if (savedData) {
     return {
       inputs: savedData.inputs,
@@ -100,10 +100,10 @@ function initializeState(): EnhancedSimulationState {
       isCalculating: false,
       lastCalculated: getLastSavedTimestamp(),
       warnings: [],
-      errors: []
+      errors: [],
     };
   }
-  
+
   return {
     inputs: DEFAULT_ENHANCED_INPUTS,
     investmentRates: DEFAULT_INVESTMENT_RATES,
@@ -111,54 +111,69 @@ function initializeState(): EnhancedSimulationState {
     isCalculating: false,
     lastCalculated: null,
     warnings: [],
-    errors: []
+    errors: [],
   };
 }
 
-export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimulationActions {
+export function useEnhancedSimulation(): EnhancedSimulationState &
+  EnhancedSimulationActions {
   const [state, setState] = useState<EnhancedSimulationState>(initializeState);
 
-  // Debounced calculation
+  // Debounced calculation using the unified engine
   const debouncedCalculation = useMemo(
-    () => debounce(() => {
-      setState(prev => ({ ...prev, isCalculating: true }));
-      
-      try {
-        // Validate inputs
-        const validation = enhancedSimulationEngine.validateEnhancedInputs(state.inputs);
-        
-        if (validation.isValid) {
-          // Run enhanced simulation with custom investment rates
-          const projections = enhancedSimulationEngine.runEnhancedSimulationWithRates(
-            state.inputs, 
-            state.investmentRates
+    () =>
+      debounce(() => {
+        setState((prev) => ({ ...prev, isCalculating: true }));
+
+        try {
+          // Create simulation configuration for enhanced mode
+          const config = {
+            includePensions: true,
+            useCustomInvestmentRates: true,
+            enableTransparency: false,
+          };
+
+          // Validate inputs using unified engine
+          const validation = financialSimulationEngine.validateInputs(
+            state.inputs,
+            config
           );
-          
-          setState(prev => ({
+
+          if (validation.isValid) {
+            // Run unified simulation in enhanced mode with custom investment rates
+            const projections = financialSimulationEngine.runSimulation(
+              state.inputs,
+              config,
+              state.investmentRates
+            ) as EnhancedYearProjection[]; // Type assertion safe because config.includePensions = true
+
+            setState((prev) => ({
+              ...prev,
+              projections,
+              isCalculating: false,
+              lastCalculated: new Date(),
+              warnings: validation.warnings,
+              errors: [],
+            }));
+          } else {
+            setState((prev) => ({
+              ...prev,
+              isCalculating: false,
+              errors: validation.errors,
+              warnings: validation.warnings,
+            }));
+          }
+        } catch (error) {
+          console.error("Enhanced simulation error:", error);
+          setState((prev) => ({
             ...prev,
-            projections,
             isCalculating: false,
-            lastCalculated: new Date(),
-            warnings: validation.warnings,
-            errors: []
-          }));
-        } else {
-          setState(prev => ({
-            ...prev,
-            isCalculating: false,
-            errors: validation.errors,
-            warnings: validation.warnings
+            errors: [
+              "Ett fel uppstod vid beräkningen. Kontrollera dina indata.",
+            ],
           }));
         }
-      } catch (error) {
-        console.error('Enhanced simulation error:', error);
-        setState(prev => ({
-          ...prev,
-          isCalculating: false,
-          errors: ['Ett fel uppstod vid beräkningen. Kontrollera dina indata.']
-        }));
-      }
-    }, 500),
+      }, 500),
     [state.inputs, state.investmentRates]
   );
 
@@ -168,125 +183,128 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
   }, [debouncedCalculation]);
 
   const updateProfile = useCallback((profile: Partial<MVPUserProfile>) => {
-    setState(prev => {
+    setState((prev) => {
       const newState = {
         ...prev,
         inputs: {
           ...prev.inputs,
-          profile: { ...prev.inputs.profile, ...profile }
-        }
+          profile: { ...prev.inputs.profile, ...profile },
+        },
       };
-      
+
       // Auto-save after update
       if (isLocalStorageAvailable()) {
         saveToLocalStorage(newState.inputs, prev.investmentRates);
       }
-      
+
       return newState;
     });
   }, []);
 
   const updateIncome = useCallback((income: Partial<MVPIncomeData>) => {
-    setState(prev => {
+    setState((prev) => {
       const newState = {
         ...prev,
         inputs: {
           ...prev.inputs,
-          income: { ...prev.inputs.income, ...income }
-        }
+          income: { ...prev.inputs.income, ...income },
+        },
       };
-      
+
       // Auto-save after update
       if (isLocalStorageAvailable()) {
         saveToLocalStorage(newState.inputs, prev.investmentRates);
       }
-      
+
       return newState;
     });
   }, []);
 
   const updateExpenses = useCallback((expenses: Partial<MVPExpenseData>) => {
-    setState(prev => {
+    setState((prev) => {
       const newState = {
         ...prev,
         inputs: {
           ...prev.inputs,
-          expenses: { ...prev.inputs.expenses, ...expenses }
-        }
+          expenses: { ...prev.inputs.expenses, ...expenses },
+        },
       };
-      
+
       // Auto-save after update
       if (isLocalStorageAvailable()) {
         saveToLocalStorage(newState.inputs, prev.investmentRates);
       }
-      
+
       return newState;
     });
   }, []);
 
   const updateAssets = useCallback((assets: Partial<MVPAssetData>) => {
-    setState(prev => {
+    setState((prev) => {
       const newState = {
         ...prev,
         inputs: {
           ...prev.inputs,
-          assets: { ...prev.inputs.assets, ...assets }
-        }
+          assets: { ...prev.inputs.assets, ...assets },
+        },
       };
-      
+
       // Auto-save after update
       if (isLocalStorageAvailable()) {
         saveToLocalStorage(newState.inputs, prev.investmentRates);
       }
-      
+
       return newState;
     });
   }, []);
 
   const updatePensions = useCallback((pensions: PensionSettings) => {
-    setState(prev => {
+    setState((prev) => {
       const newState = {
         ...prev,
         inputs: {
           ...prev.inputs,
-          pensions
-        }
+          pensions,
+        },
       };
-      
+
       // Auto-save after update
       if (isLocalStorageAvailable()) {
         saveToLocalStorage(newState.inputs, prev.investmentRates);
       }
-      
+
       return newState;
     });
   }, []);
 
-  const updateInvestmentRates = useCallback((rates: Partial<InvestmentRates>) => {
-    // Convert percentage input to decimal for internal calculations
-    const convertedRates: Partial<InvestmentRates> = {};
-    
-    if (rates.liquidSavingsRate !== undefined) {
-      convertedRates.liquidSavingsRate = rates.liquidSavingsRate / 100;
-    }
-    if (rates.iskAccountRate !== undefined) {
-      convertedRates.iskAccountRate = rates.iskAccountRate / 100;
-    }
-    
-    setState(prev => {
-      const newRates = { ...prev.investmentRates, ...convertedRates };
-      
-      // Auto-save after update
-      if (isLocalStorageAvailable()) {
-        saveToLocalStorage(prev.inputs, newRates);
+  const updateInvestmentRates = useCallback(
+    (rates: Partial<InvestmentRates>) => {
+      // Convert percentage input to decimal for internal calculations
+      const convertedRates: Partial<InvestmentRates> = {};
+
+      if (rates.liquidSavingsRate !== undefined) {
+        convertedRates.liquidSavingsRate = rates.liquidSavingsRate / 100;
       }
-      
-      return {
-        ...prev,
-        investmentRates: newRates
-      };
-    });
-  }, []);
+      if (rates.iskAccountRate !== undefined) {
+        convertedRates.iskAccountRate = rates.iskAccountRate / 100;
+      }
+
+      setState((prev) => {
+        const newRates = { ...prev.investmentRates, ...convertedRates };
+
+        // Auto-save after update
+        if (isLocalStorageAvailable()) {
+          saveToLocalStorage(prev.inputs, newRates);
+        }
+
+        return {
+          ...prev,
+          investmentRates: newRates,
+        };
+      });
+    },
+    []
+  );
 
   const runSimulation = useCallback(() => {
     debouncedCalculation();
@@ -297,7 +315,7 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
     if (isLocalStorageAvailable()) {
       clearLocalStorage();
     }
-    
+
     setState({
       inputs: DEFAULT_ENHANCED_INPUTS,
       investmentRates: DEFAULT_INVESTMENT_RATES,
@@ -305,56 +323,67 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
       isCalculating: false,
       lastCalculated: null,
       warnings: [],
-      errors: []
+      errors: [],
     });
   }, []);
 
   const exportData = useCallback(() => {
     if (state.projections.length === 0) {
-      alert('Inga data att exportera. Kör simulationen först.');
+      alert("Inga data att exportera. Kör simulationen först.");
       return;
     }
 
     try {
       // Create enhanced CSV data
       const headers = [
-        'År', 'Ålder', 'Bruttolön', 'Pensionsinkomst', 'Nettoinkomst', 
-        'Utgifter', 'Sparande', 'Nettoförmögenhet', 'Pensionskapital'
+        "År",
+        "Ålder",
+        "Bruttolön",
+        "Pensionsinkomst",
+        "Nettoinkomst",
+        "Utgifter",
+        "Sparande",
+        "Nettoförmögenhet",
+        "Pensionskapital",
       ];
-      
-      const csvData = state.projections.map(projection => ({
-        'År': projection.year,
-        'Ålder': projection.age,
-        'Bruttolön': projection.salary,
-        'Pensionsinkomst': projection.pensionIncome.total * 12,
-        'Nettoinkomst': projection.calculations.netIncome,
-        'Utgifter': projection.expenses,
-        'Sparande': projection.savings,
-        'Nettoförmögenhet': projection.netWorth,
-        'Pensionskapital': projection.pensionCapital.total
+
+      const csvData = state.projections.map((projection) => ({
+        År: projection.year,
+        Ålder: projection.age,
+        Bruttolön: projection.salary,
+        Pensionsinkomst: (projection.pensionIncome?.total || 0) * 12,
+        Nettoinkomst: projection.calculations.netIncome,
+        Utgifter: projection.expenses,
+        Sparande: projection.savings,
+        Nettoförmögenhet: projection.netWorth,
+        Pensionskapital: projection.pensionCapital?.total || 0,
       }));
 
       const csvContent = [
-        headers.join(','),
-        ...csvData.map(row => 
-          headers.map(header => row[header as keyof typeof row]).join(',')
-        )
-      ].join('\n');
+        headers.join(","),
+        ...csvData.map((row) =>
+          headers.map((header) => row[header as keyof typeof row]).join(",")
+        ),
+      ].join("\n");
 
       // Download file
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
       const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', `finanssimulering_med_pension_${new Date().toISOString().split('T')[0]}.csv`);
-      link.style.visibility = 'hidden';
+      link.setAttribute("href", url);
+      link.setAttribute(
+        "download",
+        `finanssimulering_med_pension_${
+          new Date().toISOString().split("T")[0]
+        }.csv`
+      );
+      link.style.visibility = "hidden";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
     } catch (error) {
-      console.error('Export error:', error);
-      alert('Fel vid export av data.');
+      console.error("Export error:", error);
+      alert("Fel vid export av data.");
     }
   }, [state.projections]);
 
@@ -371,72 +400,27 @@ export function useEnhancedSimulation(): EnhancedSimulationState & EnhancedSimul
     runSimulation,
     resetToDefaults,
     exportData,
-    hasLocalStorageSupport
+    hasLocalStorageSupport,
   };
 }
 
-// Enhanced summary hook
-export function useEnhancedSimulationSummary(projections: EnhancedYearProjection[], inputs: EnhancedSimulationInputs) {
+// Enhanced summary hook using unified engine
+export function useEnhancedSimulationSummary(
+  projections: EnhancedYearProjection[],
+  inputs: EnhancedSimulationInputs
+) {
   return useMemo(() => {
-    if (projections.length === 0) {
-      return {
-        maxNetWorth: 0,
-        retirementNetWorth: 0,
-        finalNetWorth: 0,
-        totalSavings: 0,
-        averageYearlySavings: 0,
-        yearsOfPositiveCashFlow: 0,
-        breakEvenAge: null,
-        // Pension-specific metrics
-        totalPensionCapital: 0,
-        averageMonthlyPension: 0,
-        pensionCompensationRatio: 0,
-        pensionDuration: 0
-      };
-    }
-
-    // Basic metrics
-    const maxNetWorth = Math.max(...projections.map(p => p.netWorth));
-    const retirementProjection = projections.find(p => p.age === inputs.profile.desiredRetirementAge);
-    const retirementNetWorth = retirementProjection?.netWorth || 0;
-    const finalNetWorth = projections[projections.length - 1].netWorth;
-    
-    const positiveSavings = projections.filter(p => p.savings > 0);
-    const totalSavings = positiveSavings.reduce((sum, p) => sum + p.savings, 0);
-    const averageYearlySavings = positiveSavings.length > 0 ? totalSavings / positiveSavings.length : 0;
-    const yearsOfPositiveCashFlow = positiveSavings.length;
-    
-    const breakEvenProjection = projections.find(p => p.netWorth > 0);
-    const breakEvenAge = breakEvenProjection?.age || null;
-
-    // Pension-specific metrics
-    const totalPensionCapital = inputs.pensions.generalPension.currentInkomstpension + 
-                               inputs.pensions.generalPension.currentPremiepension +
-                               inputs.pensions.accounts.reduce((sum, acc) => sum + acc.currentValue, 0);
-    
-    const pensionProjections = projections.filter(p => p.age >= inputs.pensions.generalPension.withdrawalStartAge);
-    const averageMonthlyPension = pensionProjections.length > 0 
-      ? pensionProjections.reduce((sum, p) => sum + p.pensionIncome.total, 0) / pensionProjections.length
-      : 0;
-    
-    const finalSalary = inputs.income.monthlySalary;
-    const pensionCompensationRatio = finalSalary > 0 ? averageMonthlyPension / finalSalary : 0;
-    
-    const pensionYears = pensionProjections.filter(p => p.pensionIncome.total > 0).length;
-
-    return {
-      maxNetWorth,
-      retirementNetWorth,
-      finalNetWorth,
-      totalSavings,
-      averageYearlySavings,
-      yearsOfPositiveCashFlow,
-      breakEvenAge,
-      totalPensionCapital,
-      averageMonthlyPension,
-      pensionCompensationRatio,
-      pensionDuration: pensionYears
+    const config = {
+      includePensions: true,
+      useCustomInvestmentRates: true,
+      enableTransparency: false,
     };
+
+    return financialSimulationEngine.generateSummary(
+      projections,
+      inputs,
+      config
+    );
   }, [projections, inputs]);
 }
 
@@ -449,52 +433,52 @@ export function useEnhancedChartData(projections: EnhancedYearProjection[]) {
         cashFlowData: [],
         incomeExpenseData: [],
         pensionIncomeData: [],
-        pensionCapitalData: []
+        pensionCapitalData: [],
       };
     }
 
-    const netWorthData = projections.map(p => ({
+    const netWorthData = projections.map((p) => ({
       year: p.year,
       age: p.age,
       value: p.netWorth || 0,
-      label: `År ${p.year} (${p.age} år)`
+      label: `År ${p.year} (${p.age} år)`,
     }));
 
-    const cashFlowData = projections.map(p => ({
+    const cashFlowData = projections.map((p) => ({
       year: p.year,
       age: p.age,
       value: p.savings || 0,
-      label: `År ${p.year} (${p.age} år)`
+      label: `År ${p.year} (${p.age} år)`,
     }));
 
-    const incomeExpenseData = projections.map(p => ({
+    const incomeExpenseData = projections.map((p) => ({
       year: p.year,
       age: p.age,
       salary: p.salary || 0,
       expenses: p.expenses || 0,
       netIncome: p.calculations?.netIncome || 0,
       pensionIncome: (p.pensionIncome?.total || 0) * 12,
-      label: `År ${p.year} (${p.age} år)`
+      label: `År ${p.year} (${p.age} år)`,
     }));
 
-    const pensionIncomeData = projections.map(p => ({
+    const pensionIncomeData = projections.map((p) => ({
       year: p.year,
       age: p.age,
       general: p.pensionIncome?.generalPension || 0,
       occupational: p.pensionIncome?.occupationalPension || 0,
       private: p.pensionIncome?.privatePension || 0,
       total: p.pensionIncome?.total || 0,
-      label: `År ${p.year} (${p.age} år)`
+      label: `År ${p.year} (${p.age} år)`,
     }));
 
-    const pensionCapitalData = projections.map(p => ({
+    const pensionCapitalData = projections.map((p) => ({
       year: p.year,
       age: p.age,
       value: p.pensionCapital?.total || 0,
       general: p.pensionCapital?.general || 0,
       occupational: p.pensionCapital?.occupational || 0,
       private: p.pensionCapital?.private || 0,
-      label: `År ${p.year} (${p.age} år)`
+      label: `År ${p.year} (${p.age} år)`,
     }));
 
     return {
@@ -502,7 +486,7 @@ export function useEnhancedChartData(projections: EnhancedYearProjection[]) {
       cashFlowData,
       incomeExpenseData,
       pensionIncomeData,
-      pensionCapitalData
+      pensionCapitalData,
     };
   }, [projections]);
 }

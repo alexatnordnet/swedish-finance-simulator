@@ -279,18 +279,8 @@ export function useEnhancedSimulation(): EnhancedSimulationState &
 
   const updateInvestmentRates = useCallback(
     (rates: Partial<InvestmentRates>) => {
-      // Convert percentage input to decimal for internal calculations
-      const convertedRates: Partial<InvestmentRates> = {};
-
-      if (rates.liquidSavingsRate !== undefined) {
-        convertedRates.liquidSavingsRate = rates.liquidSavingsRate / 100;
-      }
-      if (rates.iskAccountRate !== undefined) {
-        convertedRates.iskAccountRate = rates.iskAccountRate / 100;
-      }
-
       setState((prev) => {
-        const newRates = { ...prev.investmentRates, ...convertedRates };
+        const newRates = { ...prev.investmentRates, ...rates };
 
         // Auto-save after update
         if (isLocalStorageAvailable()) {

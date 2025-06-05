@@ -40,13 +40,13 @@ export const SWEDISH_TAX_PARAMETERS_2025: SwedishTaxParameters2025 = {
 };
 
 export const MACROECONOMIC_ASSUMPTIONS: MacroeconomicAssumptions = {
-  inflation: 0.02, // 2.0% - Riksbank target
+  inflation: 0.00, // 0.0% - Real prognosis model according to Pensionsmyndigheten standard
   realSalaryGrowth: 0.016, // 1.6% - based on productivity growth assumptions
   
   realReturnOnInvestments: {
-    stocks: 0.045, // 4.5% real return (6.5% nominal - 2% inflation)
-    bonds: 0.005, // 0.5% real return (2.5% nominal - 2% inflation)
-    mixedPortfolio: 0.035, // 3.5% real return (75% stocks, 25% bonds)
+    stocks: 0.045, // 4.5% real return (based on Pensionsmyndigheten standard)
+    bonds: 0.005, // 0.5% real return (based on Pensionsmyndigheten standard)
+    mixedPortfolio: 0.035, // 3.5% real return (75% stocks, 25% bonds - Pensionsmyndigheten standard)
   },
   
   overReturn: 0.019, // 1.9% "överavkastning" for real prognosis model

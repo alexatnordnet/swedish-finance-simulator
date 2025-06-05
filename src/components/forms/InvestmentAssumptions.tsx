@@ -22,8 +22,8 @@ export function InvestmentAssumptions({ rates, onUpdate }: InvestmentAssumptions
         <div className="flex items-start space-x-2">
           <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
           <div className="text-sm text-blue-800">
-            <p className="font-medium mb-1">Realavkastning (efter inflation)</p>
-            <p>Ange förväntad årlig avkastning efter inflation. Standardvärden baseras på Pensionsmyndighetens prognosantaganden.</p>
+            <p className="font-medium mb-1">Realavkastning (real prognosmodell)</p>
+            <p>Ange förväntad årlig avkastning i dagens penningvärde. Simulatorn använder 0% inflation enligt Pensionsmyndighetens standard.</p>
           </div>
         </div>
       </div>
@@ -47,7 +47,7 @@ export function InvestmentAssumptions({ rates, onUpdate }: InvestmentAssumptions
             placeholder="0.5"
           />
           <p className="text-xs text-gray-500 mt-1">
-            Bankränta på sparkonto minus inflation. Ofta nära noll eller negativ.
+            Real avkastning på sparkonto i dagens penningvärde. Ofta nära noll eller negativ.
           </p>
         </div>
         
@@ -69,13 +69,13 @@ export function InvestmentAssumptions({ rates, onUpdate }: InvestmentAssumptions
             placeholder="3.5"
           />
           <p className="text-xs text-gray-500 mt-1">
-            Förväntad realavkastning på aktier och fonder efter avgifter och inflation.
+            Förväntad real avkastning på aktier och fonder efter avgifter i dagens penningvärde.
           </p>
         </div>
       </div>
       
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-        <h4 className="font-medium text-gray-700 mb-2">Referensvärden (realavkastning)</h4>
+        <h4 className="font-medium text-gray-700 mb-2">Referensvärden (real prognosmodell)</h4>
         <div className="text-sm text-gray-600 space-y-1">
           <div className="flex justify-between">
             <span>Aktier (långsiktigt):</span>

@@ -247,7 +247,7 @@ export function CalculationsTab({ projections, currentYear, gender }: Calculatio
                   <p><strong>Kommunalskatt:</strong> 32,41% (rikssnitt)</p>
                 </div>
                 <div>
-                  <p><strong>Inflation:</strong> 2,0% per år</p>
+                  <p><strong>Inflation:</strong> 0,0% (real prognosmodell)</p>
                   <p><strong>Medellivslängd {gender}:</strong> {gender === 'man' ? '82,3' : '85,4'} år</p>
                   <p><strong>Valuta:</strong> Dagens penningvärde (SEK)</p>
                 </div>

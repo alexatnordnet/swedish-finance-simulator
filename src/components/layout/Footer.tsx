@@ -11,7 +11,7 @@ export function Footer({ lastCalculated }: FooterProps) {
             Svensk Livstidssimulator - Ett verktyg för privatekonomisk planering
           </p>
           <p className="mb-2">
-            Baserat på svenska skatte- och pensionsregler för 2025
+            Baserat på svenska skatte- och pensionsregler för 2025. Använder real prognosmodell (0% inflation).
           </p>
           <p className="text-xs">
             ⚠️ Detta är ett planeringsverktyg och utgör inte finansiell rådgivning.

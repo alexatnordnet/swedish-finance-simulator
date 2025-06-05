@@ -3,8 +3,40 @@
 // Real charts using Canvas API for better performance
 // ============================================================================
 
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { formatCurrency, formatAge } from '../../utils/formatters';
+
+// Hook to get responsive chart dimensions
+function useResponsiveChartSize(containerRef: React.RefObject<HTMLDivElement>, baseHeight: number) {
+  const [dimensions, setDimensions] = useState({ width: 800, height: baseHeight });
+
+  const updateDimensions = useCallback(() => {
+    if (containerRef.current) {
+      const containerWidth = containerRef.current.clientWidth;
+      // Subtract padding (32px total for p-4 on both sides)
+      const chartWidth = Math.max(containerWidth - 32, 320); // Minimum 320px width
+      setDimensions({ width: chartWidth, height: baseHeight });
+    }
+  }, [baseHeight]);
+
+  useEffect(() => {
+    updateDimensions();
+    
+    const resizeObserver = new ResizeObserver(updateDimensions);
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
+    window.addEventListener('resize', updateDimensions);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateDimensions);
+    };
+  }, [updateDimensions]);
+
+  return dimensions;
+}
 
 interface ChartDataPoint {
   year: number;
@@ -28,8 +60,8 @@ interface LineChartProps {
 
 export function InteractiveLineChart({
   data,
-  width = 800,
-  height = 300,
+  width: fixedWidth,
+  height: fixedHeight = 300,
   title,
   valueFormatter = formatCurrency,
   color = '#4F46E5',
@@ -39,6 +71,8 @@ export function InteractiveLineChart({
   className = ''
 }: LineChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { width, height } = useResponsiveChartSize(containerRef, fixedHeight);
   const [tooltip, setTooltip] = useState<{
     visible: boolean;
     x: number;
@@ -64,9 +98,15 @@ export function InteractiveLineChart({
     // Clear canvas
     ctx.clearRect(0, 0, width, height);
 
-    const padding = 60;
-    const chartWidth = width - 2 * padding;
-    const chartHeight = height - 2 * padding;
+    // Responsive padding based on screen size
+    const basePadding = Math.max(40, Math.min(60, width * 0.08));
+    const leftPadding = Math.max(50, basePadding); // Extra space for y-axis labels
+    const rightPadding = Math.max(20, basePadding * 0.5);
+    const topPadding = Math.max(20, basePadding * 0.5);
+    const bottomPadding = Math.max(40, basePadding);
+    
+    const chartWidth = width - leftPadding - rightPadding;
+    const chartHeight = height - topPadding - bottomPadding;
 
     const minValue = Math.min(...data.map(d => d.value));
     const maxValue = Math.max(...data.map(d => d.value));
@@ -79,19 +119,19 @@ export function InteractiveLineChart({
       
       // Horizontal grid lines
       for (let i = 0; i <= 5; i++) {
-        const y = padding + (i / 5) * chartHeight;
+        const y = topPadding + (i / 5) * chartHeight;
         ctx.beginPath();
         ctx.setLineDash([2, 2]);
-        ctx.moveTo(padding, y);
-        ctx.lineTo(width - padding, y);
+        ctx.moveTo(leftPadding, y);
+        ctx.lineTo(width - rightPadding, y);
         ctx.stroke();
         
         // Y-axis labels
         const value = maxValue - (i / 5) * (maxValue - minValue);
         ctx.fillStyle = '#6B7280';
-        ctx.font = '12px Inter, sans-serif';
+        ctx.font = `${Math.max(10, Math.min(12, width * 0.015))}px Inter, sans-serif`;
         ctx.textAlign = 'right';
-        ctx.fillText(valueFormatter(value), padding - 10, y + 4);
+        ctx.fillText(valueFormatter(value), leftPadding - 10, y + 4);
       }
       
       // Reset line dash
@@ -100,17 +140,17 @@ export function InteractiveLineChart({
 
     // Calculate points
     const points = data.map((point, index) => {
-      const x = padding + (index / (data.length - 1)) * chartWidth;
-      const y = padding + chartHeight - ((point.value - minValue) / valueRange) * chartHeight;
+      const x = leftPadding + (index / (data.length - 1)) * chartWidth;
+      const y = topPadding + chartHeight - ((point.value - minValue) / valueRange) * chartHeight;
       return { x, y, ...point };
     });
 
     // Draw fill area
     ctx.fillStyle = fillColor;
     ctx.beginPath();
-    ctx.moveTo(points[0].x, height - padding);
+    ctx.moveTo(points[0].x, height - bottomPadding);
     points.forEach(point => ctx.lineTo(point.x, point.y));
-    ctx.lineTo(points[points.length - 1].x, height - padding);
+    ctx.lineTo(points[points.length - 1].x, height - bottomPadding);
     ctx.closePath();
     ctx.fill();
 
@@ -129,28 +169,30 @@ export function InteractiveLineChart({
     });
     ctx.stroke();
 
-    // Draw points
+    // Draw points (smaller on mobile)
+    const pointRadius = Math.max(2, Math.min(4, width * 0.005));
     points.forEach(point => {
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(point.x, point.y, 4, 0, 2 * Math.PI);
+      ctx.arc(point.x, point.y, pointRadius, 0, 2 * Math.PI);
       ctx.fill();
       
       ctx.strokeStyle = 'white';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = Math.max(1, pointRadius * 0.5);
       ctx.stroke();
     });
 
-    // X-axis labels
+    // X-axis labels (responsive spacing)
     ctx.fillStyle = '#6B7280';
-    ctx.font = '12px Inter, sans-serif';
+    ctx.font = `${Math.max(10, Math.min(12, width * 0.015))}px Inter, sans-serif`;
     ctx.textAlign = 'center';
     
-    const labelStep = Math.ceil(data.length / 8);
+    const maxLabels = Math.floor(width / 60); // Adjust based on available width
+    const labelStep = Math.ceil(data.length / maxLabels);
     data.forEach((point, index) => {
       if (index % labelStep === 0) {
-        const x = padding + (index / (data.length - 1)) * chartWidth;
-        ctx.fillText(formatAge(point.age), x, height - padding + 20);
+        const x = leftPadding + (index / (data.length - 1)) * chartWidth;
+        ctx.fillText(formatAge(point.age), x, height - bottomPadding + 20);
       }
     });
 
@@ -211,12 +253,12 @@ export function InteractiveLineChart({
   }
 
   return (
-    <div className={`bg-white rounded-lg border p-4 relative ${className}`}>
+    <div ref={containerRef} className={`bg-white rounded-lg border p-4 relative ${className}`}>
       {title && <h3 className="text-lg font-semibold mb-4 text-gray-900">{title}</h3>}
       
       <canvas
         ref={canvasRef}
-        className="cursor-crosshair"
+        className="cursor-crosshair w-full"
         style={{ width, height }}
       />
 
@@ -256,8 +298,8 @@ interface MultiLineChartProps {
 
 export function MultiLineChart({
   datasets,
-  width = 800,
-  height = 300,
+  width: fixedWidth,
+  height: fixedHeight = 300,
   title,
   valueFormatter = formatCurrency,
   showGrid = true,
@@ -265,6 +307,8 @@ export function MultiLineChart({
   className = ''
 }: MultiLineChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { width, height } = useResponsiveChartSize(containerRef, fixedHeight);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -284,9 +328,15 @@ export function MultiLineChart({
     // Clear canvas
     ctx.clearRect(0, 0, width, height);
 
-    const padding = 60;
-    const chartWidth = width - 2 * padding;
-    const chartHeight = height - 2 * padding;
+    // Responsive padding
+    const basePadding = Math.max(40, Math.min(60, width * 0.08));
+    const leftPadding = Math.max(50, basePadding);
+    const rightPadding = Math.max(20, basePadding * 0.5);
+    const topPadding = Math.max(20, basePadding * 0.5);
+    const bottomPadding = Math.max(40, basePadding);
+    
+    const chartWidth = width - leftPadding - rightPadding;
+    const chartHeight = height - topPadding - bottomPadding;
 
     // Find global min/max across all datasets
     const allValues = datasets.flatMap(dataset => dataset.data.map(d => d.value));
@@ -300,19 +350,19 @@ export function MultiLineChart({
       ctx.lineWidth = 1;
       
       for (let i = 0; i <= 5; i++) {
-        const y = padding + (i / 5) * chartHeight;
+        const y = topPadding + (i / 5) * chartHeight;
         ctx.beginPath();
         ctx.setLineDash([2, 2]);
-        ctx.moveTo(padding, y);
-        ctx.lineTo(width - padding, y);
+        ctx.moveTo(leftPadding, y);
+        ctx.lineTo(width - rightPadding, y);
         ctx.stroke();
         
         // Y-axis labels
         const value = maxValue - (i / 5) * (maxValue - minValue);
         ctx.fillStyle = '#6B7280';
-        ctx.font = '12px Inter, sans-serif';
+        ctx.font = `${Math.max(10, Math.min(12, width * 0.015))}px Inter, sans-serif`;
         ctx.textAlign = 'right';
-        ctx.fillText(valueFormatter(value), padding - 10, y + 4);
+        ctx.fillText(valueFormatter(value), leftPadding - 10, y + 4);
       }
       
       ctx.setLineDash([]);
@@ -323,8 +373,8 @@ export function MultiLineChart({
       if (dataset.data.length === 0) return;
 
       const points = dataset.data.map((point, index) => {
-        const x = padding + (index / (dataset.data.length - 1)) * chartWidth;
-        const y = padding + chartHeight - ((point.value - minValue) / valueRange) * chartHeight;
+        const x = leftPadding + (index / (dataset.data.length - 1)) * chartWidth;
+        const y = topPadding + chartHeight - ((point.value - minValue) / valueRange) * chartHeight;
         return { x, y, ...point };
       });
 
@@ -332,9 +382,9 @@ export function MultiLineChart({
       if (dataset.fillColor) {
         ctx.fillStyle = dataset.fillColor;
         ctx.beginPath();
-        ctx.moveTo(points[0].x, height - padding);
+        ctx.moveTo(points[0].x, height - bottomPadding);
         points.forEach(point => ctx.lineTo(point.x, point.y));
-        ctx.lineTo(points[points.length - 1].x, height - padding);
+        ctx.lineTo(points[points.length - 1].x, height - bottomPadding);
         ctx.closePath();
         ctx.fill();
       }
@@ -354,11 +404,12 @@ export function MultiLineChart({
       });
       ctx.stroke();
 
-      // Draw points
+      // Draw points (responsive size)
+      const pointRadius = Math.max(2, Math.min(3, width * 0.004));
       points.forEach(point => {
         ctx.fillStyle = dataset.color;
         ctx.beginPath();
-        ctx.arc(point.x, point.y, 3, 0, 2 * Math.PI);
+        ctx.arc(point.x, point.y, pointRadius, 0, 2 * Math.PI);
         ctx.fill();
       });
     });
@@ -366,14 +417,15 @@ export function MultiLineChart({
     // X-axis labels (use first dataset for reference)
     if (datasets[0]?.data.length > 0) {
       ctx.fillStyle = '#6B7280';
-      ctx.font = '12px Inter, sans-serif';
+      ctx.font = `${Math.max(10, Math.min(12, width * 0.015))}px Inter, sans-serif`;
       ctx.textAlign = 'center';
       
-      const labelStep = Math.ceil(datasets[0].data.length / 8);
+      const maxLabels = Math.floor(width / 60);
+      const labelStep = Math.ceil(datasets[0].data.length / maxLabels);
       datasets[0].data.forEach((point, index) => {
         if (index % labelStep === 0) {
-          const x = padding + (index / (datasets[0].data.length - 1)) * chartWidth;
-          ctx.fillText(formatAge(point.age), x, height - padding + 20);
+          const x = leftPadding + (index / (datasets[0].data.length - 1)) * chartWidth;
+          ctx.fillText(formatAge(point.age), x, height - bottomPadding + 20);
         }
       });
     }
@@ -381,22 +433,22 @@ export function MultiLineChart({
   }, [datasets, width, height, showGrid, valueFormatter]);
 
   return (
-    <div className={`bg-white rounded-lg border p-4 ${className}`}>
+    <div ref={containerRef} className={`bg-white rounded-lg border p-4 ${className}`}>
       {title && <h3 className="text-lg font-semibold mb-4 text-gray-900">{title}</h3>}
       
       <canvas
         ref={canvasRef}
-        className="cursor-crosshair"
+        className="cursor-crosshair w-full"
         style={{ width, height }}
       />
 
       {/* Legend */}
       {showLegend && (
-        <div className="mt-4 flex flex-wrap gap-4">
+        <div className="mt-4 flex flex-wrap gap-3 sm:gap-4">
           {datasets.map((dataset, index) => (
-            <div key={index} className="flex items-center text-sm">
+            <div key={index} className="flex items-center text-xs sm:text-sm">
               <div 
-                className="w-4 h-0.5 mr-2" 
+                className="w-3 sm:w-4 h-0.5 mr-1.5 sm:mr-2" 
                 style={{ backgroundColor: dataset.color }}
               />
               <span className="text-gray-700">{dataset.label}</span>
@@ -427,14 +479,16 @@ interface BarChartProps {
 
 export function InteractiveBarChart({
   data,
-  width = 600,
-  height = 300,
+  width: fixedWidth,
+  height: fixedHeight = 300,
   title,
   valueFormatter = formatCurrency,
   horizontal = false,
   className = ''
 }: BarChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { width, height } = useResponsiveChartSize(containerRef, fixedHeight);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -452,9 +506,14 @@ export function InteractiveBarChart({
 
     ctx.clearRect(0, 0, width, height);
 
-    const padding = 80;
-    const chartWidth = width - 2 * padding;
-    const chartHeight = height - 2 * padding;
+    const basePadding = Math.max(60, Math.min(80, width * 0.1));
+    const leftPadding = Math.max(80, basePadding);
+    const rightPadding = Math.max(20, basePadding * 0.25);
+    const topPadding = Math.max(20, basePadding * 0.25);
+    const bottomPadding = Math.max(60, basePadding);
+    
+    const chartWidth = width - leftPadding - rightPadding;
+    const chartHeight = height - topPadding - bottomPadding;
 
     const maxValue = Math.max(...data.map(d => Math.abs(d.value)));
     const minValue = Math.min(...data.map(d => d.value));
@@ -467,19 +526,19 @@ export function InteractiveBarChart({
 
       data.forEach((item, index) => {
         const barWidth = Math.abs(item.value) / maxValue * chartWidth;
-        const y = padding + index * (barHeight + barSpacing);
+        const y = topPadding + index * (barHeight + barSpacing);
         const x = hasNegative ? 
           (item.value >= 0 ? width / 2 : width / 2 - barWidth) :
-          padding;
+          leftPadding;
 
         ctx.fillStyle = item.color || '#4F46E5';
         ctx.fillRect(x, y, barWidth, barHeight);
 
         // Label
         ctx.fillStyle = '#374151';
-        ctx.font = '12px Inter, sans-serif';
+        ctx.font = `${Math.max(10, Math.min(12, width * 0.015))}px Inter, sans-serif`;
         ctx.textAlign = 'right';
-        ctx.fillText(item.label, padding - 10, y + barHeight / 2 + 4);
+        ctx.fillText(item.label, leftPadding - 10, y + barHeight / 2 + 4);
 
         // Value
         ctx.textAlign = 'left';
@@ -496,20 +555,20 @@ export function InteractiveBarChart({
 
       data.forEach((item, index) => {
         const barHeight = Math.abs(item.value) / maxValue * chartHeight;
-        const x = padding + index * (barWidth + barSpacing);
+        const x = leftPadding + index * (barWidth + barSpacing);
         const y = hasNegative ?
           (item.value >= 0 ? height / 2 - barHeight : height / 2) :
-          height - padding - barHeight;
+          height - bottomPadding - barHeight;
 
         ctx.fillStyle = item.color || '#4F46E5';
         ctx.fillRect(x, y, barWidth, barHeight);
 
         // Label
         ctx.fillStyle = '#374151';
-        ctx.font = '12px Inter, sans-serif';
+        ctx.font = `${Math.max(10, Math.min(12, width * 0.015))}px Inter, sans-serif`;
         ctx.textAlign = 'center';
         ctx.save();
-        ctx.translate(x + barWidth / 2, height - padding + 20);
+        ctx.translate(x + barWidth / 2, height - bottomPadding + 20);
         ctx.rotate(-Math.PI / 4);
         ctx.fillText(item.label, 0, 0);
         ctx.restore();
@@ -522,11 +581,11 @@ export function InteractiveBarChart({
       ctx.lineWidth = 1;
       ctx.beginPath();
       if (horizontal) {
-        ctx.moveTo(width / 2, padding);
-        ctx.lineTo(width / 2, height - padding);
+        ctx.moveTo(width / 2, topPadding);
+        ctx.lineTo(width / 2, height - bottomPadding);
       } else {
-        ctx.moveTo(padding, height / 2);
-        ctx.lineTo(width - padding, height / 2);
+        ctx.moveTo(leftPadding, height / 2);
+        ctx.lineTo(width - rightPadding, height / 2);
       }
       ctx.stroke();
     }
@@ -534,11 +593,12 @@ export function InteractiveBarChart({
   }, [data, width, height, horizontal, valueFormatter]);
 
   return (
-    <div className={`bg-white rounded-lg border p-4 ${className}`}>
+    <div ref={containerRef} className={`bg-white rounded-lg border p-4 ${className}`}>
       {title && <h3 className="text-lg font-semibold mb-4 text-gray-900">{title}</h3>}
       
       <canvas
         ref={canvasRef}
+        className="w-full"
         style={{ width, height }}
       />
     </div>

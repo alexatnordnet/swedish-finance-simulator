@@ -27,14 +27,14 @@ export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
           <button
             key={id}
             onClick={() => onTabChange(id)}
-            className={`flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+            className={`flex items-center px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors flex-1 sm:flex-none justify-center sm:justify-start ${
               activeTab === id
                 ? 'bg-white text-indigo-700 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            <Icon className="h-4 w-4 mr-2" />
-            {label}
+            <Icon className="h-4 w-4 mr-1 sm:mr-2" />
+            <span className="hidden sm:inline">{label}</span>
           </button>
         ))}
       </nav>

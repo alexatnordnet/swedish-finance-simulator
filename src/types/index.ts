@@ -325,7 +325,19 @@ export interface MVPYearProjection {
   salary: number;
   expenses: number;
   savings: number;
+  /**
+   * Net worth at the END of the year, after this year's cash flow, drawdown
+   * and investment growth have been applied. May be negative once capital is
+   * exhausted and the shortfall has to be borrowed.
+   */
   netWorth: number;
+  /** Balances at the END of the year, consistent with netWorth. */
+  assets: {
+    liquidSavings: number;
+    iskAccount: number;
+    /** Liquid savings + ISK. The capital actually available to draw on. */
+    drawable: number;
+  };
   calculations: {
     grossIncome: number;
     /** Allmän pensionsavgift. Fully offset by skattereduktion, so net zero. */

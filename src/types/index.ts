@@ -192,6 +192,7 @@ export interface SwedishTaxParameters2025 {
     under66: number; // 643,100 kr/year
     over66: number; // 733,200 kr/year
   };
+  stateTaxThreshold: number; // 625,800 kr skiktgräns (on income after grundavdrag)
   stateTaxRate: number; // 20%
   averageMunicipalTax: number; // 32.41%
   generalPensionFee: number; // 7% of PGI
@@ -327,7 +328,10 @@ export interface MVPYearProjection {
   netWorth: number;
   calculations: {
     grossIncome: number;
+    /** Allmän pensionsavgift. Fully offset by skattereduktion, so net zero. */
     pensionFee: number;
+    /** Jobbskatteavdrag, as a positive number. Already netted out of totalTax. */
+    earnedIncomeTaxCredit: number;
     municipalTax: number;
     stateTax: number;
     iskTax: number;

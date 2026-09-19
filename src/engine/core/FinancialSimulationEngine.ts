@@ -211,9 +211,11 @@ export class FinancialSimulationEngine {
       : 0;
     const totalGrossIncome = salaryIncome + pensionYearlyIncome;
 
-    // Calculate taxes on total income
+    // Calculate taxes. Salary and pension are passed separately: only salary is
+    // pensionsgrundande and only salary qualifies for jobbskatteavdrag.
     const taxResult = taxCalculator.calculateYearlyTax({
-      grossSalary: totalGrossIncome,
+      grossSalary: salaryIncome,
+      pensionIncome: pensionYearlyIncome,
       age,
       iskCapital: this.safeNumber(iskAccount),
       kfCapital: 0,
@@ -266,7 +268,10 @@ export class FinancialSimulationEngine {
       netWorth: this.safeNumber(netWorth),
       calculations: {
         grossIncome: totalGrossIncome,
-        pensionFee: this.safeNumber(salaryIncome * 0.07), // Only on salary
+        pensionFee: this.safeNumber(taxResult.pensionFee),
+        earnedIncomeTaxCredit: this.safeNumber(
+          taxResult.earnedIncomeTaxCredit
+        ),
         municipalTax: this.safeNumber(taxResult.municipalTax),
         stateTax: this.safeNumber(taxResult.stateTax),
         iskTax: this.safeNumber(taxResult.iskTax),

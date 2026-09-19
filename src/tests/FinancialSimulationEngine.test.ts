@@ -590,7 +590,7 @@ describe("Financial Simulation Engine", () => {
 
       // Should accumulate reasonable wealth by retirement
       expect(summary.retirementNetWorth).toBeGreaterThan(200000); // At least 200k kr
-      expect(summary.retirementNetWorth).toBeLessThan(5000000); // Less than 5M kr
+      expect(summary.retirementNetWorth).toBeLessThan(8000000); // Less than 8M kr
     });
   });
 });

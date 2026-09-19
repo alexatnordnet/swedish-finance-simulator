@@ -19,13 +19,12 @@ describe('Swedish Tax Calculator', () => {
       });
 
       // Expected calculation:
-      // Pension fee: 540,000 * 0.07 = 37,800 (simplified)
-      // Basic deduction: ~45,300 (maximum for this income level)
-      // Taxable income: 540,000 - 37,800 - 45,300 = 456,900
-      // Municipal tax: 456,900 * 0.3241 = 148,049
+      // Grundavdrag at 540,000 kr FI is at the minimum, 17,300 kr
+      // Taxable income: 540,000 - 17,300 = 522,700
+      // Municipal tax: 522,700 * 0.3241 = 169,407
 
-      expect(result.municipalTax).toBeGreaterThan(140000);
-      expect(result.municipalTax).toBeLessThan(160000);
+      expect(result.municipalTax).toBeGreaterThan(160000);
+      expect(result.municipalTax).toBeLessThan(180000);
       expect(result.stateTax).toBe(0); // Below state tax threshold
     });
 
@@ -41,7 +40,17 @@ describe('Swedish Tax Calculator', () => {
       // Should have both municipal and state tax
       expect(result.municipalTax).toBeGreaterThan(200000);
       expect(result.stateTax).toBeGreaterThan(0);
-      expect(result.totalTax).toBe(result.municipalTax + result.stateTax + result.iskTax + result.kfTax + result.capitalGainsTax);
+      expect(result.totalTax).toBeCloseTo(
+        result.municipalTax +
+          result.stateTax +
+          result.pensionFee -
+          result.pensionFeeCredit -
+          result.earnedIncomeTaxCredit +
+          result.iskTax +
+          result.kfTax +
+          result.capitalGainsTax,
+        6
+      );
     });
 
     it('should apply different state tax thresholds for different ages', () => {
@@ -175,7 +184,7 @@ describe('Swedish Tax Calculator', () => {
       // Should have income tax + ISK tax calculations (and possibly KF tax)
       expect(result.calculations.length).toBeGreaterThanOrEqual(2);
       expect(result.calculations[0].category).toBe('Inkomstskatt');
-      expect(result.calculations[1].category).toBe('ISK Schablonskatt');
+      expect(result.calculations[1].category).toBe('ISK/KF Schablonskatt');
       
       // Each calculation should have steps
       expect(result.calculations[0].steps.length).toBeGreaterThan(0);
@@ -190,7 +199,7 @@ describe('Swedish Tax Calculator', () => {
         kfCapital: 100000
       });
 
-      expect(summary).toHaveLength(6); // All tax types + total
+      expect(summary).toHaveLength(9); // All tax types, credits and total
       expect(summary.find(item => item.description === 'Total skatt')).toBeDefined();
       
       // Verify amounts are reasonable
@@ -274,7 +283,254 @@ describe('Swedish Tax Calculator', () => {
       expect(result.iskTax).toBeCloseTo(3108, -1); // Within ±10 kr
       
       // Total tax should be income tax + ISK tax
-      expect(result.totalTax).toBe(result.municipalTax + result.stateTax + result.iskTax + result.kfTax + result.capitalGainsTax);
+      expect(result.totalTax).toBeCloseTo(
+        result.municipalTax +
+          result.stateTax +
+          result.pensionFee -
+          result.pensionFeeCredit -
+          result.earnedIncomeTaxCredit +
+          result.iskTax +
+          result.kfTax +
+          result.capitalGainsTax,
+        6
+      );
+    });
+  });
+
+  // ==========================================================================
+  // REGRESSION TESTS
+  // These pin behaviour that was previously wrong. See the notes on each.
+  // ==========================================================================
+  describe('Regression: grundavdrag is continuous', () => {
+    it('should never let a raise reduce net income', () => {
+      // The old implementation used a 3-step staircase, which created cliffs
+      // where earning 200 kr more made you ~6,700 kr richer (and vice versa).
+      let previousNet = -Infinity;
+      for (let gross = 1000; gross <= 1_200_000; gross += 1000) {
+        const result = taxCalculator.calculateYearlyTax({
+          grossSalary: gross,
+          age: 40,
+          iskCapital: 0,
+          kfCapital: 0,
+        });
+        expect(result.netIncome).toBeGreaterThanOrEqual(previousNet);
+        previousNet = result.netIncome;
+      }
+    });
+
+    it('should hit the statutory grundavdrag amounts for 2025', () => {
+      const at = (gross: number, age = 40) =>
+        taxCalculator.calculateYearlyTax({
+          grossSalary: gross,
+          age,
+          iskCapital: 0,
+          kfCapital: 0,
+        }).grundavdrag;
+
+      // Maximum 45,300 kr on the plateau between 2.72 and 3.11 pbb
+      expect(at(170_000)).toBeCloseTo(45_300, 0);
+      // Minimum 17,300 kr above 7.88 pbb (463,344 kr)
+      expect(at(600_000)).toBeCloseTo(17_300, 0);
+      // Base amount 24,900 kr at low incomes
+      expect(at(50_000)).toBeCloseTo(24_900, 0);
+    });
+
+    it('should never exceed the income it is deducted from', () => {
+      for (const gross of [1000, 5000, 15_000, 24_000]) {
+        const result = taxCalculator.calculateYearlyTax({
+          grossSalary: gross,
+          age: 40,
+          iskCapital: 0,
+          kfCapital: 0,
+        });
+        expect(result.grundavdrag).toBeLessThanOrEqual(gross);
+        expect(result.totalTax).toBeGreaterThanOrEqual(0);
+      }
+    });
+  });
+
+  describe('Regression: state tax uses skiktgräns, not brytpunkt', () => {
+    it('should start charging state tax at the published brytpunkt', () => {
+      // Brytpunkt 2025 is 643,100 kr of gross salary. The old code compared
+      // post-grundavdrag income against it, pushing the onset to ~780,000 kr.
+      const below = taxCalculator.calculateYearlyTax({
+        grossSalary: 640_000,
+        age: 40,
+        iskCapital: 0,
+        kfCapital: 0,
+      });
+      const above = taxCalculator.calculateYearlyTax({
+        grossSalary: 650_000,
+        age: 40,
+        iskCapital: 0,
+        kfCapital: 0,
+      });
+
+      expect(below.stateTax).toBe(0);
+      expect(above.stateTax).toBeGreaterThan(0);
+
+      // The exact onset should land within rounding distance of the brytpunkt
+      let onset = 0;
+      for (let gross = 640_000; gross <= 646_000; gross += 1) {
+        const result = taxCalculator.calculateYearlyTax({
+          grossSalary: gross,
+          age: 40,
+          iskCapital: 0,
+          kfCapital: 0,
+        });
+        if (result.stateTax > 0) {
+          onset = gross;
+          break;
+        }
+      }
+      expect(onset).toBeGreaterThan(642_000);
+      expect(onset).toBeLessThan(644_000);
+    });
+
+    it('should charge 20% on the amount above the skiktgräns', () => {
+      const result = taxCalculator.calculateYearlyTax({
+        grossSalary: 800_000,
+        age: 40,
+        iskCapital: 0,
+        kfCapital: 0,
+      });
+      const expected =
+        (800_000 - result.grundavdrag - 625_800) * 0.2;
+      expect(result.stateTax).toBeCloseTo(expected, 6);
+    });
+  });
+
+  describe('Regression: jobbskatteavdrag', () => {
+    it('should give a typical earner a meaningful credit', () => {
+      // 45,000 kr/month. Without jobbskatteavdrag the old model overstated
+      // tax by roughly 1,500 kr/month.
+      const result = taxCalculator.calculateYearlyTax({
+        grossSalary: 540_000,
+        age: 40,
+        iskCapital: 0,
+        kfCapital: 0,
+      });
+
+      expect(result.earnedIncomeTaxCredit).toBeGreaterThan(30_000);
+      expect(result.earnedIncomeTaxCredit).toBeLessThan(45_000);
+
+      // Resulting net should be in the right ballpark for sv-SE 2025
+      const monthlyNet = result.netIncome / 12;
+      expect(monthlyNet).toBeGreaterThan(32_000);
+      expect(monthlyNet).toBeLessThan(36_000);
+    });
+
+    it('should not grant the credit on pension income', () => {
+      const pension = taxCalculator.calculateYearlyTax({
+        grossSalary: 0,
+        pensionIncome: 300_000,
+        age: 67,
+        iskCapital: 0,
+        kfCapital: 0,
+      });
+
+      expect(pension.earnedIncomeTaxCredit).toBe(0);
+    });
+
+    it('should never exceed the municipal tax it offsets', () => {
+      for (const gross of [30_000, 80_000, 150_000, 300_000]) {
+        const result = taxCalculator.calculateYearlyTax({
+          grossSalary: gross,
+          age: 40,
+          iskCapital: 0,
+          kfCapital: 0,
+        });
+        expect(result.earnedIncomeTaxCredit).toBeLessThanOrEqual(
+          result.municipalTax + 1e-9
+        );
+      }
+    });
+  });
+
+  describe('Regression: pension income is not pensionsgrundande', () => {
+    it('should not charge allmän pensionsavgift on pension payouts', () => {
+      const result = taxCalculator.calculateYearlyTax({
+        grossSalary: 0,
+        pensionIncome: 300_000,
+        age: 67,
+        iskCapital: 0,
+        kfCapital: 0,
+      });
+
+      expect(result.pensionFee).toBe(0);
+    });
+
+    it('should charge the fee on salary only when both are present', () => {
+      const result = taxCalculator.calculateYearlyTax({
+        grossSalary: 200_000,
+        pensionIncome: 100_000,
+        age: 67,
+        iskCapital: 0,
+        kfCapital: 0,
+      });
+
+      expect(result.pensionFee).toBeCloseTo(200_000 * 0.07, 6);
+    });
+
+    it('should tax salary and pension alike once credits are accounted for', () => {
+      // The fee is fully offset by skattereduktion, so at an age where neither
+      // qualifies for jobbskatteavdrag the two income types cost the same.
+      const salary = taxCalculator.calculateYearlyTax({
+        grossSalary: 300_000,
+        age: 67,
+        iskCapital: 0,
+        kfCapital: 0,
+      });
+      const pension = taxCalculator.calculateYearlyTax({
+        grossSalary: 0,
+        pensionIncome: 300_000,
+        age: 67,
+        iskCapital: 0,
+        kfCapital: 0,
+      });
+
+      expect(salary.netIncome).toBeCloseTo(pension.netIncome, 6);
+    });
+  });
+
+  describe('Regression: ISK and KF share one fribelopp', () => {
+    it('should not grant a separate allowance to each account type', () => {
+      const pooled = taxCalculator.calculateYearlyTax({
+        grossSalary: 0,
+        age: 40,
+        iskCapital: 300_000,
+        kfCapital: 0,
+      });
+      const split = taxCalculator.calculateYearlyTax({
+        grossSalary: 0,
+        age: 40,
+        iskCapital: 150_000,
+        kfCapital: 150_000,
+      });
+
+      // Splitting capital across ISK and KF must not reduce the tax
+      expect(split.iskTax + split.kfTax).toBeCloseTo(
+        pooled.iskTax + pooled.kfTax,
+        6
+      );
+      expect(split.iskTax + split.kfTax).toBeGreaterThan(0);
+    });
+
+    it('should split the tax proportionally between ISK and KF', () => {
+      const result = taxCalculator.calculateYearlyTax({
+        grossSalary: 0,
+        age: 40,
+        iskCapital: 450_000,
+        kfCapital: 150_000,
+      });
+
+      // 600,000 - 150,000 = 450,000 taxable, at 0.888%
+      expect(result.iskTax + result.kfTax).toBeCloseTo(450_000 * 0.00888, 6);
+      // ISK holds 75% of the capital, so it carries 75% of the tax
+      expect(result.iskTax).toBeCloseTo(
+        (result.iskTax + result.kfTax) * 0.75,
+        6
+      );
     });
   });
 });

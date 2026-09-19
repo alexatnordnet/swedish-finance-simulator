@@ -14,6 +14,11 @@ export const SWEDISH_TAX_PARAMETERS_2025: SwedishTaxParameters2025 = {
     over66: 733200,  // kr per year (ca 61,100 kr/månad)
   },
   
+  // Skiktgräns: the threshold state tax is actually levied on, applied to
+  // BESKATTNINGSBAR inkomst (after grundavdrag). The "brytpunkt" above is the
+  // corresponding GROSS salary, i.e. skiktgräns + grundavdrag, and is display-only.
+  stateTaxThreshold: 625800, // kr per year (2025)
+
   stateTaxRate: 0.20, // 20%
   averageMunicipalTax: 0.3241, // 32.41% (national average including region)
   generalPensionFee: 0.07, // 7% of PGI
@@ -100,18 +105,79 @@ export const PENSION_PARAMETERS_2025 = {
   ]),
 };
 
-// Basic deduction amounts (grundavdrag) for 2025
+// ---------------------------------------------------------------------------
+// GRUNDAVDRAG (basic deduction) 2025
+//
+// Grundavdrag is a continuous, piecewise-linear function of the fastställda
+// förvärvsinkomsten (FI), expressed in multiples of prisbasbeloppet (pbb).
+// Source: 63 kap. 3 § inkomstskattelagen.
+//
+// Derived amounts for 2025 (pbb = 58,800):
+//   base   0.423 × pbb = 24,900 kr
+//   max    0.770 × pbb = 45,300 kr
+//   min    0.293 × pbb = 17,300 kr
+// ---------------------------------------------------------------------------
 export const BASIC_DEDUCTION_2025 = {
+  priceBaseAmount: 58800, // prisbasbelopp 2025
+
   under66: {
-    minimum: 24900,
-    maximum: 45300,
-    minimumAtHighIncome: 17300,
+    // Bracket boundaries, as multiples of pbb
+    baseEnd: 0.99, // flat base amount up to here
+    rampEnd: 2.72, // rises at rampRate up to here
+    plateauEnd: 3.11, // flat maximum up to here
+    phaseOutEnd: 7.88, // declines at phaseOutRate up to here, then flat minimum
+
+    // Amounts, as multiples of pbb
+    baseFactor: 0.423,
+    maxFactor: 0.77,
+    minFactor: 0.293,
+
+    // Slopes
+    rampRate: 0.2,
+    phaseOutRate: 0.1,
   },
+
+  // Förhöjt grundavdrag for those who turned 66 before the start of the year.
+  //
+  // APPROXIMATION: the statutory table in 63 kap. 3 a § IL is not reproduced
+  // here. This is a continuous piecewise-linear curve through the three amounts
+  // already documented for this simulator. The value at phaseOutEndIncome is
+  // exact: brytpunkt (733,200) - skiktgräns (625,800) = 107,400.
   over66: {
-    minimum: 65300,
-    maximum: 163100,
-    minimumAtHighIncome: 107400,
+    minimum: 65300, // low incomes
+    maximum: 163100, // peak
+    minimumAtHighIncome: 107400, // flat from phaseOutEndIncome upwards (exact)
+    peakIncome: 300000, // FI at which the peak is reached
+    phaseOutEndIncome: 733200, // FI at which the curve flattens out
   },
+};
+
+// ---------------------------------------------------------------------------
+// JOBBSKATTEAVDRAG (earned income tax credit) 2025
+//
+// Skattereduktion för arbetsinkomst, 67 kap. 5-7 §§ inkomstskattelagen.
+// The credit is (creditBase - grundavdrag) × kommunal skattesats, where
+// creditBase is a piecewise-linear function of arbetsinkomsten in pbb.
+// Applies to ARBETSINKOMST only - pension income does not qualify.
+// ---------------------------------------------------------------------------
+export const JOBBSKATTEAVDRAG_2025 = {
+  // Bracket boundaries, as multiples of pbb
+  break1: 0.91,
+  break2: 3.24,
+  break3: 8.08,
+
+  // Slopes within brackets 2 and 3
+  rate2: 0.3405,
+  rate3: 0.128,
+
+  // Credit base at the start of brackets 2 and 3, as multiples of pbb
+  plateau2: 1.703, // 0.91 + 0.3405 × (3.24 - 0.91)
+  plateau3: 2.323, // 1.703 + 0.128 × (8.08 - 3.24)
+
+  // Avtrappning: reduced by phaseOutRate of the FI above phaseOutStart × pbb,
+  // which exhausts the credit at roughly 2 MSEK.
+  phaseOutStart: 13.54,
+  phaseOutRate: 0.03,
 };
 
 // Default investment assumptions for user input

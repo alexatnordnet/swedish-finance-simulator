@@ -5,6 +5,7 @@ import { useState } from 'react';
 interface CalculationDetails {
   grossIncome: number;
   pensionFee: number;
+  earnedIncomeTaxCredit: number;
   netIncome: number;
   municipalTax: number;
   stateTax: number;
@@ -67,9 +68,9 @@ export function CalculationsTab({ projections, currentYear, gender }: Calculatio
               color: '#B91C1C'
             },
             {
-              label: 'Pensionsavgift',
-              value: selectedProjection.calculations.pensionFee,
-              color: '#991B1B'
+              label: 'Jobbskatteavdrag',
+              value: -selectedProjection.calculations.earnedIncomeTaxCredit,
+              color: '#059669'
             }
           ]}
           title={`Skattefördelning ${formatSimulationYear(selectedProjection.year, currentYear)}`}
@@ -164,8 +165,16 @@ export function CalculationsTab({ projections, currentYear, gender }: Calculatio
                         <span className="text-red-600">{formatCurrency(selectedProjection.calculations.iskTax)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Pensionsavgift:</span>
+                        <span>Allmän pensionsavgift:</span>
                         <span className="text-red-600">{formatCurrency(selectedProjection.calculations.pensionFee)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="pl-2 text-gray-500">Skattereduktion pensionsavgift:</span>
+                        <span className="text-green-600">{formatCurrency(-selectedProjection.calculations.pensionFee)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Jobbskatteavdrag:</span>
+                        <span className="text-green-600">{formatCurrency(-selectedProjection.calculations.earnedIncomeTaxCredit)}</span>
                       </div>
                       <div className="flex justify-between font-medium border-t border-gray-300 pt-1">
                         <span>Totala skatter & avgifter:</span>
@@ -245,11 +254,13 @@ export function CalculationsTab({ projections, currentYear, gender }: Calculatio
                   <p><strong>Real avkastning ISK:</strong> 3,5% per år</p>
                   <p><strong>ISK-skatt:</strong> 0,888% per år (2025)</p>
                   <p><strong>Kommunalskatt:</strong> 32,41% (rikssnitt)</p>
+                  <p><strong>Statlig skatt:</strong> 20% över skiktgränsen 625 800 kr</p>
                 </div>
                 <div>
                   <p><strong>Inflation:</strong> 0,0% (real prognosmodell)</p>
                   <p><strong>Medellivslängd {gender}:</strong> {gender === 'man' ? '82,3' : '85,4'} år</p>
                   <p><strong>Valuta:</strong> Dagens penningvärde (SEK)</p>
+                  <p><strong>Skatteregler:</strong> Inkl. grundavdrag och jobbskatteavdrag 2025</p>
                 </div>
               </div>
             </div>

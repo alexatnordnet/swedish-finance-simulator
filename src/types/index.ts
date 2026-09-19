@@ -170,7 +170,6 @@ export interface MacroeconomicAssumptions {
     bonds: number; // Default 0.5%
     mixedPortfolio: number; // Default 3.5%
   };
-  overReturn: number; // Default 1.9% for real prognosis model
   lifeExpectancy: {
     male: number; // Default 82.3 years (SCB 2025)
     female: number; // Default 85.4 years (SCB 2025)
@@ -192,6 +191,7 @@ export interface SwedishTaxParameters2025 {
     under66: number; // 643,100 kr/year
     over66: number; // 733,200 kr/year
   };
+  stateTaxThreshold: number; // 625,800 kr skiktgräns (on income after grundavdrag)
   stateTaxRate: number; // 20%
   averageMunicipalTax: number; // 32.41%
   generalPensionFee: number; // 7% of PGI
@@ -201,16 +201,9 @@ export interface SwedishTaxParameters2025 {
     minRate: number; // 1.25%
     taxRate: number; // 30%
     taxFreeAmount2025: number; // 150,000 kr
-    taxFreeAmount2026: number; // 300,000 kr
   };
   capitalGainsTax: {
     securities: number; // 30%
-    primaryHome: number; // 22%
-  };
-  interestDeduction: {
-    rate1: number; // 30% (up to 100k)
-    rate2: number; // 21% (above 100k)
-    threshold: number; // 100,000 kr
   };
 }
 
@@ -324,10 +317,25 @@ export interface MVPYearProjection {
   salary: number;
   expenses: number;
   savings: number;
+  /**
+   * Net worth at the END of the year, after this year's cash flow, drawdown
+   * and investment growth have been applied. May be negative once capital is
+   * exhausted and the shortfall has to be borrowed.
+   */
   netWorth: number;
+  /** Balances at the END of the year, consistent with netWorth. */
+  assets: {
+    liquidSavings: number;
+    iskAccount: number;
+    /** Liquid savings + ISK. The capital actually available to draw on. */
+    drawable: number;
+  };
   calculations: {
     grossIncome: number;
+    /** Allmän pensionsavgift. Fully offset by skattereduktion, so net zero. */
     pensionFee: number;
+    /** Jobbskatteavdrag, as a positive number. Already netted out of totalTax. */
+    earnedIncomeTaxCredit: number;
     municipalTax: number;
     stateTax: number;
     iskTax: number;

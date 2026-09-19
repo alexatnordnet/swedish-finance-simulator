@@ -14,6 +14,11 @@ export const SWEDISH_TAX_PARAMETERS_2025: SwedishTaxParameters2025 = {
     over66: 733200,  // kr per year (ca 61,100 kr/månad)
   },
   
+  // Skiktgräns: the threshold state tax is actually levied on, applied to
+  // BESKATTNINGSBAR inkomst (after grundavdrag). The "brytpunkt" above is the
+  // corresponding GROSS salary, i.e. skiktgräns + grundavdrag, and is display-only.
+  stateTaxThreshold: 625800, // kr per year (2025)
+
   stateTaxRate: 0.20, // 20%
   averageMunicipalTax: 0.3241, // 32.41% (national average including region)
   generalPensionFee: 0.07, // 7% of PGI
@@ -24,18 +29,10 @@ export const SWEDISH_TAX_PARAMETERS_2025: SwedishTaxParameters2025 = {
     minRate: 0.0125, // 1.25% minimum
     taxRate: 0.30, // 30% tax on schablonintäkt
     taxFreeAmount2025: 150000, // 150,000 kr tax-free amount for 2025
-    taxFreeAmount2026: 300000, // 300,000 kr tax-free amount from 2026
   },
   
   capitalGainsTax: {
     securities: 0.30, // 30% on stocks, funds etc.
-    primaryHome: 0.22, // 22% on primary residence
-  },
-  
-  interestDeduction: {
-    rate1: 0.30, // 30% deduction up to threshold
-    rate2: 0.21, // 21% deduction above threshold
-    threshold: 100000, // 100,000 kr threshold
   },
 };
 
@@ -49,69 +46,73 @@ export const MACROECONOMIC_ASSUMPTIONS: MacroeconomicAssumptions = {
     mixedPortfolio: 0.035, // 3.5% real return (75% stocks, 25% bonds - Pensionsmyndigheten standard)
   },
   
-  overReturn: 0.019, // 1.9% "överavkastning" for real prognosis model
-  
   lifeExpectancy: {
     male: 82.3, // SCB data March 2025
     female: 85.4, // SCB data March 2025
   },
 };
 
-// Pension system parameters
-export const PENSION_PARAMETERS_2025 = {
-  // General pension (allmän pension)
-  generalPension: {
-    avsättningTotal: 0.185, // 18.5% of PGI
-    inkomstpensionAndel: 0.16, // 16 percentage points to inkomstpension
-    premiepensionAndel: 0.025, // 2.5 percentage points to premiepension
-    maxPGI: 604500, // Maximum pensionsgrundande inkomst (8.07 × IBB × 0.93)
-    minInkomstForIntjänande: 24873, // Minimum income for pension accrual
-    följsamhetsIndexering: 0.04, // 4.0% for 2025
+export const BASIC_DEDUCTION_2025 = {
+  priceBaseAmount: 58800, // prisbasbelopp 2025
+
+  under66: {
+    // Bracket boundaries, as multiples of pbb
+    baseEnd: 0.99, // flat base amount up to here
+    rampEnd: 2.72, // rises at rampRate up to here
+    plateauEnd: 3.11, // flat maximum up to here
+    phaseOutEnd: 7.88, // declines at phaseOutRate up to here, then flat minimum
+
+    // Amounts, as multiples of pbb
+    baseFactor: 0.423,
+    maxFactor: 0.77,
+    minFactor: 0.293,
+
+    // Slopes
+    rampRate: 0.2,
+    phaseOutRate: 0.1,
   },
-  
-  // Occupational pension parameters
-  occupationalPension: {
-    ITP1: {
-      premieUnderTak: 0.045, // 4.5% of salary up to 7.5 IBB
-      premieÖverTak: 0.30, // 30% of salary between 7.5 and 30 IBB
-      takLågNivå: 50375, // 7.5 IBB/12 monthly (kr/månad)
-      takHögNivå: 201500, // 30 IBB/12 monthly (kr/månad)
-    },
-    
-    ITPK: {
-      premie: 0.02, // 2% of salary
-    },
-    
-    SAFLO: {
-      premieUnderTak: 0.045, // 4.5% (4.38% billed to employer, 4.5% credited)
-      premieÖverTak: 0.30, // 30% above threshold
-      tak: 50375, // 7.5 IBB/12 monthly (kr/månad)
-    },
+
+  // Förhöjt grundavdrag for those who turned 66 before the start of the year.
+  //
+  // APPROXIMATION: the statutory table in 63 kap. 3 a § IL is not reproduced
+  // here. This is a continuous piecewise-linear curve through the three amounts
+  // already documented for this simulator. The value at phaseOutEndIncome is
+  // exact: brytpunkt (733,200) - skiktgräns (625,800) = 107,400.
+  over66: {
+    minimum: 65300, // low incomes
+    maximum: 163100, // peak
+    minimumAtHighIncome: 107400, // flat from phaseOutEndIncome upwards (exact)
+    peakIncome: 300000, // FI at which the peak is reached
+    phaseOutEndIncome: 733200, // FI at which the curve flattens out
   },
-  
-  // Riktålder (target retirement age) by birth year
-  riktÅlder: new Map([
-    [1958, 66], [1959, 66],
-    [1960, 67], [1961, 67], [1962, 67], [1963, 67], [1964, 67], [1965, 67], [1966, 67],
-    [1967, 68], // Approximate for 1967-1980
-    [1981, 69], // Approximate for 1981-1996
-    [1997, 70], // Approximate for 1997-2014
-    [2015, 71], // Approximate for 2015+
-  ]),
 };
 
-// Basic deduction amounts (grundavdrag) for 2025
-export const BASIC_DEDUCTION_2025 = {
-  under66: {
-    minimum: 24900,
-    maximum: 45300,
-    minimumAtHighIncome: 17300,
-  },
-  over66: {
-    minimum: 65300,
-    maximum: 163100,
-    minimumAtHighIncome: 107400,
-  },
+// ---------------------------------------------------------------------------
+// JOBBSKATTEAVDRAG (earned income tax credit) 2025
+//
+// Skattereduktion för arbetsinkomst, 67 kap. 5-7 §§ inkomstskattelagen.
+// The credit is (creditBase - grundavdrag) × kommunal skattesats, where
+// creditBase is a piecewise-linear function of arbetsinkomsten in pbb.
+// Applies to ARBETSINKOMST only - pension income does not qualify.
+// ---------------------------------------------------------------------------
+export const JOBBSKATTEAVDRAG_2025 = {
+  // Bracket boundaries, as multiples of pbb
+  break1: 0.91,
+  break2: 3.24,
+  break3: 8.08,
+
+  // Slopes within brackets 2 and 3
+  rate2: 0.3405,
+  rate3: 0.128,
+
+  // Credit base at the start of brackets 2 and 3, as multiples of pbb
+  plateau2: 1.703, // 0.91 + 0.3405 × (3.24 - 0.91)
+  plateau3: 2.323, // 1.703 + 0.128 × (8.08 - 3.24)
+
+  // Avtrappning: reduced by phaseOutRate of the FI above phaseOutStart × pbb,
+  // which exhausts the credit at roughly 2 MSEK.
+  phaseOutStart: 13.54,
+  phaseOutRate: 0.03,
 };
 
 // Default investment assumptions for user input
@@ -123,23 +124,8 @@ export const DEFAULT_INVESTMENT_ASSUMPTIONS = {
   propertyAppreciation: 0.02,   // 2.0% real property appreciation
 };
 
-// Utility function to get riktålder by birth year
-export function getRiktÅlder(birthYear: number): number {
-  const riktÅlder = PENSION_PARAMETERS_2025.riktÅlder;
-  
-  // Find the closest year
-  for (const [year, age] of riktÅlder) {
-    if (birthYear <= year) {
-      return age;
-    }
-  }
-  
-  // Default to latest age for very young people
-  return 71;
-}
-
 // Utility function to calculate effective ISK/KF tax rate for 2025
-export function calculateISKTaxRate(): number {
+function calculateISKTaxRate(): number {
   const params = SWEDISH_TAX_PARAMETERS_2025.iskKfParameters;
   const schablonRate = Math.max(
     params.governmentBondRate + params.supplement,
@@ -150,19 +136,3 @@ export function calculateISKTaxRate(): number {
 
 // Current ISK/KF effective tax rate for 2025
 export const ISK_EFFECTIVE_TAX_RATE_2025 = calculateISKTaxRate(); // Should be ~0.888%
-
-// Consumer costs reference values (example values, should be updated with latest Konsumentverket data)
-export const CONSUMER_REFERENCE_COSTS_2025 = {
-  ensamstående: {
-    mat: 4080, // kr/månad (mat, allt lagas hemma)
-    kläder: 900,
-    fritid: 700,
-    telefon: 200,
-    hygien: 630,
-    förbrukning: 200,
-    hemutrustning: 1000,
-    media: 1074,
-    hushållsel: 380,
-    hemförsäkring: 150,
-  },
-};

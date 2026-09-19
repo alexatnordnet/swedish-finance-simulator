@@ -198,21 +198,6 @@ export function deepClone<T>(obj: T): T {
 }
 
 /**
- * Debounce function for input handling
- */
-export function debounce<T extends (...args: any[]) => any>(
-  func: T,
-  wait: number
-): (...args: Parameters<T>) => void {
-  let timeout: ReturnType<typeof setTimeout>;
-
-  return (...args: Parameters<T>) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
-}
-
-/**
  * Generate a simple hash for caching
  */
 export function simpleHash(str: string): string {

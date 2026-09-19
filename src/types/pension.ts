@@ -15,6 +15,11 @@ export interface PensionAccount {
   canChooseWithdrawalAge: boolean;
   earliestWithdrawalAge: number;
   latestWithdrawalAge: number;
+  /**
+   * Set by the simulation engine in the year withdrawals begin: the monthly
+   * payment locked in at that point, held flat for life. Not user input.
+   */
+  annuitisedMonthlyAmount?: number;
   withdrawalSettings: {
     startAge: number;
     monthlyAmount: number;

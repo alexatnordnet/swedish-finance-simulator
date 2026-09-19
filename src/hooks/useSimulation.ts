@@ -13,7 +13,6 @@ import {
   MVPAssetData,
 } from "../types";
 import { financialSimulationEngine } from "../engine/core/FinancialSimulationEngine";
-import { debounce } from "../utils/formatters";
 import { DEFAULT_INVESTMENT_ASSUMPTIONS } from "../engine/swedish-parameters/TaxParameters2025";
 
 interface SimulationState {
@@ -68,67 +67,69 @@ export function useSimulation(): SimulationState & SimulationActions {
     errors: [],
   });
 
-  // Debounced calculation using unified engine in MVP mode
-  const debouncedCalculation = useMemo(
-    () =>
-      debounce(() => {
-        setState((prev) => ({ ...prev, isCalculating: true }));
+  // The actual calculation. Debouncing is handled by the effect below, which
+  // owns the timer; wrapping this in debounce() here did nothing, because the
+  // memo was rebuilt on every input change and each new closure started with
+  // a fresh, empty timeout handle that could not cancel the pending one.
+  const calculate = useCallback(() => {
+    setState((prev) => ({ ...prev, isCalculating: true }));
 
-        try {
-          // Create simulation configuration for MVP mode (no pensions)
-          const config = {
-            includePensions: false,
-            useCustomInvestmentRates: false,
-            enableTransparency: false,
-          };
+    try {
+      // Create simulation configuration for MVP mode (no pensions)
+      const config = {
+        includePensions: false,
+        useCustomInvestmentRates: false,
+        enableTransparency: false,
+      };
 
-          // Validate inputs using unified engine
-          const validation = financialSimulationEngine.validateInputs(
-            state.inputs,
-            config
-          );
+      // Validate inputs using unified engine
+      const validation = financialSimulationEngine.validateInputs(
+        state.inputs,
+        config
+      );
 
-          if (validation.isValid) {
-            // Run unified simulation in MVP mode
-            const projections = financialSimulationEngine.runSimulation(
-              state.inputs,
-              config
-            ) as MVPYearProjection[]; // Type assertion safe because config.includePensions = false
+      if (validation.isValid) {
+        // Run unified simulation in MVP mode
+        const projections = financialSimulationEngine.runSimulation(
+          state.inputs,
+          config
+        ) as MVPYearProjection[]; // Type assertion safe because config.includePensions = false
 
-            setState((prev) => ({
-              ...prev,
-              projections,
-              isCalculating: false,
-              lastCalculated: new Date(),
-              warnings: validation.warnings,
-              errors: [],
-            }));
-          } else {
-            setState((prev) => ({
-              ...prev,
-              isCalculating: false,
-              errors: validation.errors,
-              warnings: validation.warnings,
-            }));
-          }
-        } catch (error) {
-          console.error("Simulation error:", error);
-          setState((prev) => ({
-            ...prev,
-            isCalculating: false,
-            errors: [
-              "Ett fel uppstod vid beräkningen. Kontrollera dina indata.",
-            ],
-          }));
-        }
-      }, 500),
-    [state.inputs]
-  );
+        setState((prev) => ({
+          ...prev,
+          projections,
+          isCalculating: false,
+          lastCalculated: new Date(),
+          warnings: validation.warnings,
+          errors: [],
+        }));
+      } else {
+        setState((prev) => ({
+          ...prev,
+          isCalculating: false,
+          errors: validation.errors,
+          warnings: validation.warnings,
+        }));
+      }
+    } catch (error) {
+      console.error("Simulation error:", error);
+      setState((prev) => ({
+        ...prev,
+        isCalculating: false,
+        errors: [
+          "Ett fel uppstod vid beräkningen. Kontrollera dina indata.",
+        ],
+      }));
+    }
+  }, [state.inputs]);
 
-  // Auto-calculate when inputs change
+  // Auto-calculate when inputs change, debounced. The timeout handle lives in
+  // the effect, so React's cleanup cancels the pending run on every change and
+  // only the last one in a burst of typing actually executes.
   useEffect(() => {
-    debouncedCalculation();
-  }, [debouncedCalculation]);
+    const handle = setTimeout(calculate, 500);
+    return () => clearTimeout(handle);
+  }, [calculate]);
 
   const updateProfile = useCallback((profile: Partial<MVPUserProfile>) => {
     setState((prev) => ({
@@ -171,8 +172,8 @@ export function useSimulation(): SimulationState & SimulationActions {
   }, []);
 
   const runSimulation = useCallback(() => {
-    debouncedCalculation();
-  }, [debouncedCalculation]);
+    calculate();
+  }, [calculate]);
 
   const resetToDefaults = useCallback(() => {
     setState({
@@ -217,8 +218,12 @@ export function useSimulation(): SimulationState & SimulationActions {
         ),
       ].join("\n");
 
-      // Download file
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      // Download file. The UTF-8 BOM is what makes Excel read the file as
+      // UTF-8; without it the Swedish headings ("Ålder", "Bruttolön") open as
+      // mojibake in the default Windows locale.
+      const blob = new Blob(["\uFEFF" + csvContent], {
+        type: "text/csv;charset=utf-8;",
+      });
       const link = document.createElement("a");
       const url = URL.createObjectURL(blob);
       link.setAttribute("href", url);
@@ -230,6 +235,7 @@ export function useSimulation(): SimulationState & SimulationActions {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     } catch (error) {
       console.error("Export error:", error);
       alert("Fel vid export av data.");

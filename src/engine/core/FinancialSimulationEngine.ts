@@ -29,6 +29,16 @@ type UnifiedSimulationInputs = MVPSimulationInputs & {
 type UnifiedYearProjection = MVPYearProjection & {
   pensionIncome?: EnhancedYearProjection["pensionIncome"];
   pensionCapital?: EnhancedYearProjection["pensionCapital"];
+  /**
+   * Account balances at the end of this year, carried into the next iteration.
+   * Internal bookkeeping - consumers should read `pensionCapital` instead.
+   */
+  pensionAccountsAfterYear?: PensionAccount[];
+  /**
+   * General pension monthly amount locked in at withdrawal start, carried
+   * forward so it stays flat. Internal bookkeeping.
+   */
+  lockedGeneralPension?: number;
 };
 
 // Validation result type
@@ -51,6 +61,9 @@ interface YearCalculationParams {
   pensionAccounts?: PensionAccount[];
   pensionSettings?: PensionSettings;
   investmentRates?: InvestmentRates;
+  gender: MVPSimulationInputs["profile"]["gender"];
+  /** General pension monthly amount locked in when payouts began, if they have. */
+  lockedGeneralPension?: number;
 }
 
 export class FinancialSimulationEngine {
@@ -69,10 +82,8 @@ export class FinancialSimulationEngine {
     investmentRates?: InvestmentRates
   ): UnifiedYearProjection[] {
     const results: UnifiedYearProjection[] = [];
-    const lifeExpectancy =
-      this.assumptions.lifeExpectancy[
-        inputs.profile.gender === "man" ? "male" : "female"
-      ];
+    const gender = inputs.profile.gender;
+    const lifeExpectancy = this.lifeExpectancyFor(gender);
 
     // Validate and cap investment rates to prevent extreme calculations
     const safeInvestmentRates = this.sanitizeInvestmentRates(investmentRates);
@@ -85,13 +96,21 @@ export class FinancialSimulationEngine {
     // Initialize pension-related state if enabled
     let generalPensionCapital = 0;
     let pensionAccounts: PensionAccount[] = [];
+    let lockedGeneralPension: number | undefined;
 
     if (config.includePensions && inputs.pensions) {
       generalPensionCapital = this.safeNumber(
         inputs.pensions.generalPension.currentInkomstpension +
           inputs.pensions.generalPension.currentPremiepension
       );
-      pensionAccounts = [...inputs.pensions.accounts];
+      // Deep copy: the simulation advances each account's balance year by year,
+      // and these objects are owned by React state. A shallow copy would let
+      // the simulation mutate its own inputs, so every recalculation would
+      // start from the previous run's end state.
+      pensionAccounts = inputs.pensions.accounts.map((account) => ({
+        ...account,
+        withdrawalSettings: { ...account.withdrawalSettings },
+      }));
     }
 
     // Run simulation year by year
@@ -120,42 +139,27 @@ export class FinancialSimulationEngine {
           investmentRates: config.useCustomInvestmentRates
             ? safeInvestmentRates
             : undefined,
+          gender,
+          lockedGeneralPension,
         },
         config
       );
 
       results.push(yearProjection);
 
-      // Update state for next year using configurable logic
-      this.updateStateForNextYear({
-        yearProjection,
-        liquidAssets,
-        iskAccount,
-        currentSalary,
-        generalPensionCapital,
-        pensionAccounts,
-        isRetired,
-        config,
-        inputs,
-        safeInvestmentRates,
-      });
-
-      // Update variables for next iteration
-      liquidAssets = this.calculateNextLiquidAssets(
-        yearProjection,
-        liquidAssets,
-        safeInvestmentRates,
-        config
-      );
-      iskAccount = this.calculateNextISKValue(
-        iskAccount,
-        safeInvestmentRates,
-        config
-      );
+      // Carry the end-of-year balances into the next iteration. simulateYear
+      // has already applied cash flow, drawdown and growth.
+      liquidAssets = yearProjection.assets.liquidSavings;
+      iskAccount = yearProjection.assets.iskAccount;
 
       if (config.includePensions) {
+        // simulateYear has already advanced the accounts for this year, so the
+        // projected balances are carried straight over. Applying growth or
+        // withdrawals again here would compound them twice.
         generalPensionCapital = yearProjection.pensionCapital?.general || 0;
-        pensionAccounts = this.updatePensionAccounts(pensionAccounts, age);
+        pensionAccounts = yearProjection.pensionAccountsAfterYear ?? pensionAccounts;
+        lockedGeneralPension =
+          yearProjection.lockedGeneralPension ?? lockedGeneralPension;
       }
 
       // Update salary if not retired
@@ -188,19 +192,24 @@ export class FinancialSimulationEngine {
       pensionSettings,
     } = params;
 
-    // Calculate pension income if enabled
+    // Calculate pension income if enabled. Accounts starting payouts this year
+    // get their annuity priced and locked before any income is read off them.
     let pensionIncome = undefined;
+    let activeAccounts = pensionAccounts;
     if (
       config.includePensions &&
       generalPensionCapital !== undefined &&
       pensionAccounts &&
       pensionSettings
     ) {
+      activeAccounts = this.resolveAnnuities(age, pensionAccounts, params.gender);
       pensionIncome = this.calculatePensionIncome(
         age,
         generalPensionCapital,
-        pensionAccounts,
-        pensionSettings
+        activeAccounts,
+        pensionSettings,
+        params.gender,
+        params.lockedGeneralPension
       );
     }
 
@@ -211,9 +220,11 @@ export class FinancialSimulationEngine {
       : 0;
     const totalGrossIncome = salaryIncome + pensionYearlyIncome;
 
-    // Calculate taxes on total income
+    // Calculate taxes. Salary and pension are passed separately: only salary is
+    // pensionsgrundande and only salary qualifies for jobbskatteavdrag.
     const taxResult = taxCalculator.calculateYearlyTax({
-      grossSalary: totalGrossIncome,
+      grossSalary: salaryIncome,
+      pensionIncome: pensionYearlyIncome,
       age,
       iskCapital: this.safeNumber(iskAccount),
       kfCapital: 0,
@@ -224,37 +235,45 @@ export class FinancialSimulationEngine {
     const netIncome = this.safeNumber(taxResult.netIncome);
     const cashFlow = netIncome - yearlyExpenses;
 
-    // Calculate pension capital if enabled
+    // Advance pension capital by one year if enabled. This is the single place
+    // pension balances move: it returns new account objects rather than
+    // mutating, and the caller carries them into the next year.
     let pensionCapital = undefined;
+    let pensionAccountsAfterYear: PensionAccount[] | undefined;
     if (
       config.includePensions &&
       generalPensionCapital !== undefined &&
       pensionAccounts &&
       pensionSettings
     ) {
-      const updatedPensionCapital = this.updatePensionCapital(
+      const advanced = this.advancePensionCapital(
         age,
         generalPensionCapital,
-        pensionAccounts,
+        activeAccounts!,
         pensionSettings,
-        pensionIncome!
+        pensionIncome!,
+        params.gender
       );
-      pensionCapital = {
-        general: this.safeNumber(updatedPensionCapital.general),
-        occupational: this.safeNumber(updatedPensionCapital.occupational),
-        private: this.safeNumber(updatedPensionCapital.private),
-        total: this.safeNumber(updatedPensionCapital.total),
-      };
+      pensionCapital = advanced.capital;
+      pensionAccountsAfterYear = advanced.accounts;
     }
 
-    // Calculate net worth
-    const totalPensionCapital = pensionCapital?.total || 0;
-    const netWorth = Math.max(
-      0,
-      this.safeNumber(liquidAssets) +
-        this.safeNumber(iskAccount) +
-        totalPensionCapital
+    // Advance liquid savings and ISK by one year: apply this year's cash flow
+    // (drawing down capital if it is negative), then investment growth.
+    const assets = this.advanceAssets(
+      cashFlow,
+      this.safeNumber(liquidAssets),
+      this.safeNumber(iskAccount),
+      params.investmentRates,
+      config
     );
+
+    // Net worth is measured at the END of the year, so it is consistent with
+    // the balances reported alongside it. It is deliberately NOT floored at
+    // zero: once capital is exhausted, a continuing deficit is a real debt and
+    // hiding it would make the projection look solvent when it is not.
+    const totalPensionCapital = pensionCapital?.total || 0;
+    const netWorth = this.safeNumber(assets.drawable + totalPensionCapital);
 
     // Build the unified projection
     const baseProjection: MVPYearProjection = {
@@ -264,9 +283,13 @@ export class FinancialSimulationEngine {
       expenses: yearlyExpenses,
       savings: cashFlow,
       netWorth: this.safeNumber(netWorth),
+      assets,
       calculations: {
         grossIncome: totalGrossIncome,
-        pensionFee: this.safeNumber(salaryIncome * 0.07), // Only on salary
+        pensionFee: this.safeNumber(taxResult.pensionFee),
+        earnedIncomeTaxCredit: this.safeNumber(
+          taxResult.earnedIncomeTaxCredit
+        ),
         municipalTax: this.safeNumber(taxResult.municipalTax),
         stateTax: this.safeNumber(taxResult.stateTax),
         iskTax: this.safeNumber(taxResult.iskTax),
@@ -282,6 +305,12 @@ export class FinancialSimulationEngine {
         ...baseProjection,
         pensionIncome,
         pensionCapital,
+        pensionAccountsAfterYear,
+        lockedGeneralPension:
+          params.lockedGeneralPension ??
+          (pensionIncome.generalPension > 0
+            ? pensionIncome.generalPension
+            : undefined),
       };
     }
 
@@ -497,7 +526,9 @@ export class FinancialSimulationEngine {
     age: number,
     generalPensionCapital: number,
     pensionAccounts: PensionAccount[],
-    pensionSettings: PensionSettings
+    pensionSettings: PensionSettings,
+    gender: MVPSimulationInputs["profile"]["gender"],
+    lockedMonthlyAmount?: number
   ): EnhancedYearProjection["pensionIncome"] {
     let generalPension = 0;
     let occupationalPension = 0;
@@ -509,12 +540,16 @@ export class FinancialSimulationEngine {
         generalPension = this.safeNumber(
           pensionSettings.generalPension.estimatedMonthlyAmount
         );
+      } else if (lockedMonthlyAmount !== undefined) {
+        // Already priced in an earlier year - hold it flat.
+        generalPension = this.safeNumber(lockedMonthlyAmount);
       } else {
-        // Estimate based on capital and life expectancy
-        const genderKey = age >= 65 ? "female" : "male";
+        // Price it once, over the life expectancy remaining at the age
+        // withdrawals begin.
         const remainingYears = Math.max(
           1,
-          this.assumptions.lifeExpectancy[genderKey] - age
+          this.lifeExpectancyFor(gender) -
+            pensionSettings.generalPension.withdrawalStartAge
         );
         generalPension = this.safeNumber(
           generalPensionCapital / (remainingYears * 12)
@@ -526,7 +561,7 @@ export class FinancialSimulationEngine {
     pensionAccounts.forEach((account) => {
       if (age >= account.withdrawalSettings.startAge) {
         const monthlyAmount = this.safeNumber(
-          this.calculateAccountPension(account, age)
+          this.calculateAccountPension(account, age, gender)
         );
 
         if (account.type === "tjänste") {
@@ -550,7 +585,8 @@ export class FinancialSimulationEngine {
    */
   private calculateAccountPension(
     account: PensionAccount,
-    currentAge: number
+    currentAge: number,
+    gender: MVPSimulationInputs["profile"]["gender"]
   ): number {
     if (currentAge < account.withdrawalSettings.startAge) {
       return 0;
@@ -566,14 +602,26 @@ export class FinancialSimulationEngine {
       return this.safeNumber(account.expectedMonthlyPension);
     }
 
+    // A payment locked in when withdrawals began is held flat for life.
+    if (
+      account.annuitisedMonthlyAmount !== undefined &&
+      account.annuitisedMonthlyAmount > 0
+    ) {
+      return this.safeNumber(account.annuitisedMonthlyAmount);
+    }
+
     // Calculate based on capital and withdrawal strategy
     const currentValue = this.safeNumber(account.currentValue);
 
     if (account.withdrawalSettings.isLifelong) {
-      // Lifelong pension - calculate based on life expectancy
-      const genderKey = currentAge >= 65 ? "female" : "male";
-      const lifeExpectancy = this.assumptions.lifeExpectancy[genderKey];
-      const remainingYears = Math.max(1, lifeExpectancy - currentAge);
+      // Lifelong pension - annuitised over the life expectancy remaining AT
+      // THE START of withdrawals. Using the horizon remaining at the current
+      // age instead would shrink the divisor every year and make the payment
+      // balloon towards the end of life.
+      const remainingYears = Math.max(
+        1,
+        this.lifeExpectancyFor(gender) - account.withdrawalSettings.startAge
+      );
       return currentValue / (remainingYears * 12);
     } else {
       // Until capital depleted - use 4% rule as default
@@ -582,23 +630,69 @@ export class FinancialSimulationEngine {
   }
 
   /**
-   * Update pension capital values
+   * Lock in the annuity for any account that starts paying out this year.
+   *
+   * A lifelong pension is priced once, from the capital and life expectancy at
+   * the moment withdrawals begin, and then stays flat. Re-pricing it annually
+   * against a shrinking horizon is what produced the end-of-life payment spike.
    */
-  private updatePensionCapital(
+  private resolveAnnuities(
+    age: number,
+    accounts: PensionAccount[],
+    gender: MVPSimulationInputs["profile"]["gender"]
+  ): PensionAccount[] {
+    return accounts.map((account) => {
+      const started = age >= account.withdrawalSettings.startAge;
+      if (!started || account.annuitisedMonthlyAmount !== undefined) {
+        return account;
+      }
+      return {
+        ...account,
+        annuitisedMonthlyAmount: this.safeNumber(
+          this.calculateAccountPension(account, age, gender)
+        ),
+      };
+    });
+  }
+
+  /**
+   * Life expectancy for a profile's gender.
+   */
+  private lifeExpectancyFor(
+    gender: MVPSimulationInputs["profile"]["gender"]
+  ): number {
+    return this.assumptions.lifeExpectancy[
+      gender === "man" ? "male" : "female"
+    ];
+  }
+
+  /**
+   * Advance all pension capital by one year.
+   *
+   * This is the single place pension balances move. It is pure: it returns new
+   * account objects rather than mutating the ones passed in, so the caller can
+   * safely hold on to the previous year's state and repeated runs over the same
+   * inputs produce identical results.
+   */
+  private advancePensionCapital(
     age: number,
     generalPensionCapital: number,
     pensionAccounts: PensionAccount[],
     pensionSettings: PensionSettings,
-    pensionIncome: EnhancedYearProjection["pensionIncome"]
-  ) {
+    pensionIncome: EnhancedYearProjection["pensionIncome"],
+    gender: MVPSimulationInputs["profile"]["gender"]
+  ): {
+    capital: EnhancedYearProjection["pensionCapital"];
+    accounts: PensionAccount[];
+  } {
     // General pension capital
     let updatedGeneralCapital = this.safeNumber(generalPensionCapital);
     if (age >= pensionSettings.generalPension.withdrawalStartAge) {
-      // If withdrawing, reduce capital
+      // Withdrawing: reduce capital by this year's payout
       const withdrawal = this.safeNumber(pensionIncome.generalPension * 12);
       updatedGeneralCapital = Math.max(0, updatedGeneralCapital - withdrawal);
     } else {
-      // If not withdrawing, grow with conservative return
+      // Still accumulating: grow with a conservative return
       updatedGeneralCapital = this.safeNumber(
         updatedGeneralCapital *
           (1 + this.assumptions.realReturnOnInvestments.bonds)
@@ -609,154 +703,117 @@ export class FinancialSimulationEngine {
     let occupationalCapital = 0;
     let privateCapital = 0;
 
-    pensionAccounts.forEach((account) => {
+    const accounts = pensionAccounts.map((account) => {
+      let nextValue: number;
+
       if (age >= account.withdrawalSettings.startAge) {
         // Withdrawing from this account
         const annualWithdrawal = this.safeNumber(
-          this.calculateAccountPension(account, age) * 12
+          this.calculateAccountPension(account, age, gender) * 12
         );
-        account.currentValue = Math.max(
+        nextValue = Math.max(
           0,
           this.safeNumber(account.currentValue) - annualWithdrawal
         );
       } else {
-        // Not withdrawing yet, grow the capital
-        account.currentValue = this.safeNumber(
+        // Still accumulating
+        nextValue = this.safeNumber(
           account.currentValue *
             (1 + this.assumptions.realReturnOnInvestments.mixedPortfolio)
         );
       }
 
       if (account.type === "tjänste") {
-        occupationalCapital += this.safeNumber(account.currentValue);
+        occupationalCapital += nextValue;
       } else if (account.type === "privat") {
-        privateCapital += this.safeNumber(account.currentValue);
+        privateCapital += nextValue;
       }
+
+      return { ...account, currentValue: nextValue };
     });
 
     return {
-      general: updatedGeneralCapital,
-      occupational: occupationalCapital,
-      private: privateCapital,
-      total: updatedGeneralCapital + occupationalCapital + privateCapital,
+      capital: {
+        general: this.safeNumber(updatedGeneralCapital),
+        occupational: this.safeNumber(occupationalCapital),
+        private: this.safeNumber(privateCapital),
+        total: this.safeNumber(
+          updatedGeneralCapital + occupationalCapital + privateCapital
+        ),
+      },
+      accounts,
     };
   }
 
   /**
-   * Update state for next year with configurable logic
+   * Advance liquid savings and ISK by one year.
+   *
+   * A surplus is saved, a deficit is funded. Cash is spent first and ISK is
+   * only touched once cash is gone, which matches how people actually draw
+   * down: the bank account before the brokerage account. If both are
+   * exhausted the remaining deficit is carried as negative cash, i.e. debt.
+   * Growth is applied after the cash flow, so money saved this year starts
+   * earning next year rather than retroactively.
    */
-  private updateStateForNextYear(params: {
-    yearProjection: UnifiedYearProjection;
-    liquidAssets: number;
-    iskAccount: number;
-    currentSalary: number;
-    generalPensionCapital: number;
-    pensionAccounts: PensionAccount[];
-    isRetired: boolean;
-    config: SimulationConfig;
-    inputs: UnifiedSimulationInputs;
-    safeInvestmentRates: InvestmentRates;
-  }): void {
-    // This method handles state updates that might need special logic
-    // Currently just used for debugging, but could be extended for more complex state management
-    if (params.yearProjection.year <= 5) {
-      console.log(
-        `Year ${
-          params.yearProjection.year
-        }: Liquid=${params.liquidAssets.toFixed(
-          0
-        )}, ISK=${params.iskAccount.toFixed(
-          0
-        )}, CashFlow=${params.yearProjection.calculations.cashFlow.toFixed(
-          0
-        )}, NetWorth=${params.yearProjection.netWorth.toFixed(0)}`
-      );
-    }
-  }
-
-  /**
-   * Calculate next year's liquid assets
-   */
-  private calculateNextLiquidAssets(
-    yearProjection: UnifiedYearProjection,
+  private advanceAssets(
+    cashFlow: number,
     currentLiquidAssets: number,
-    investmentRates: InvestmentRates,
+    currentISKValue: number,
+    investmentRates: InvestmentRates | undefined,
     config: SimulationConfig
-  ): number {
-    let totalCashFlow = yearProjection.calculations.cashFlow;
+  ): { liquidSavings: number; iskAccount: number; drawable: number } {
+    const rates = this.sanitizeInvestmentRates(investmentRates);
     let liquidAssets = currentLiquidAssets;
+    let iskAccount = currentISKValue;
 
-    // If cash flow is negative, we need to draw from assets to cover the deficit
-    if (totalCashFlow < 0) {
-      // First draw from liquid assets
-      const liquidDeficit = Math.min(-totalCashFlow, liquidAssets);
-      liquidAssets -= liquidDeficit;
-      totalCashFlow += liquidDeficit;
+    if (cashFlow >= 0) {
+      // Surplus is invested in the ISK, where a long-horizon saver would put
+      // it, rather than left to earn the cash rate.
+      iskAccount += cashFlow;
     } else {
-      // Positive cash flow goes to liquid assets
-      liquidAssets += totalCashFlow;
+      let deficit = -cashFlow;
+
+      // Cash first.
+      const fromLiquid = Math.min(deficit, Math.max(0, liquidAssets));
+      liquidAssets -= fromLiquid;
+      deficit -= fromLiquid;
+
+      // Then the ISK.
+      if (deficit > 0) {
+        const fromISK = Math.min(deficit, Math.max(0, iskAccount));
+        iskAccount -= fromISK;
+        deficit -= fromISK;
+      }
+
+      // Anything still unfunded is borrowed.
+      if (deficit > 0) {
+        liquidAssets -= deficit;
+      }
     }
 
-    // Apply investment growth to remaining positive assets
+    // Growth applies only to positive balances. A negative cash balance is
+    // debt; growing it at the savings rate would be nonsense.
     if (liquidAssets > 0) {
       const growthRate = config.useCustomInvestmentRates
-        ? investmentRates.liquidSavingsRate
+        ? rates.liquidSavingsRate
         : this.assumptions.realReturnOnInvestments.bonds;
       liquidAssets = this.safeNumber(liquidAssets * (1 + growthRate));
     }
+    if (iskAccount > 0) {
+      const growthRate = config.useCustomInvestmentRates
+        ? rates.iskAccountRate
+        : this.assumptions.realReturnOnInvestments.mixedPortfolio;
+      iskAccount = this.safeNumber(iskAccount * (1 + growthRate));
+    }
 
-    return Math.max(0, liquidAssets);
-  }
+    liquidAssets = this.safeNumber(liquidAssets);
+    iskAccount = this.safeNumber(Math.max(0, iskAccount));
 
-  /**
-   * Calculate next year's ISK value
-   */
-  private calculateNextISKValue(
-    currentISKValue: number,
-    investmentRates: InvestmentRates,
-    config: SimulationConfig
-  ): number {
-    if (currentISKValue <= 0) return 0;
-
-    const growthRate = config.useCustomInvestmentRates
-      ? investmentRates.iskAccountRate
-      : this.assumptions.realReturnOnInvestments.mixedPortfolio;
-
-    return this.safeNumber(currentISKValue * (1 + growthRate));
-  }
-
-  /**
-   * Update pension accounts array
-   */
-  private updatePensionAccounts(
-    accounts: PensionAccount[],
-    age: number
-  ): PensionAccount[] {
-    return accounts.map((account) => {
-      if (age >= account.withdrawalSettings.startAge) {
-        const monthlyWithdrawal = this.safeNumber(
-          this.calculateAccountPension(account, age)
-        );
-        const annualWithdrawal = monthlyWithdrawal * 12;
-
-        return {
-          ...account,
-          currentValue: Math.max(
-            0,
-            this.safeNumber(account.currentValue) - annualWithdrawal
-          ),
-        };
-      } else {
-        // Grow the capital
-        return {
-          ...account,
-          currentValue: this.safeNumber(
-            account.currentValue *
-              (1 + this.assumptions.realReturnOnInvestments.mixedPortfolio)
-          ),
-        };
-      }
-    });
+    return {
+      liquidSavings: liquidAssets,
+      iskAccount,
+      drawable: this.safeNumber(liquidAssets + iskAccount),
+    };
   }
 
   /**
@@ -796,7 +853,7 @@ export class FinancialSimulationEngine {
       return this.getEmptySummary();
     }
 
-    const pension = this.estimatePension(inputs, config);
+    const pension = this.estimatePension(inputs, config, projections);
     const capitalDuration = this.analyzeCapitalDuration(
       projections,
       inputs.profile.desiredRetirementAge
@@ -815,8 +872,13 @@ export class FinancialSimulationEngine {
       positiveSavings.length > 0 ? totalSavings / positiveSavings.length : 0;
     const yearsOfPositiveCashFlow = positiveSavings.length;
 
-    const breakEvenProjection = projections.find((p) => p.netWorth > 0);
-    const breakEvenAge = breakEvenProjection?.age || null;
+    // Break-even is the age net worth first turns positive, and it only means
+    // anything if it started out negative. Reporting the first positive year
+    // of an always-positive projection just restates the starting age.
+    const breakEvenAge =
+      projections.length > 0 && projections[0].netWorth < 0
+        ? projections.find((p) => p.netWorth > 0)?.age ?? null
+        : null;
 
     const baseSummary = {
       maxNetWorth,
@@ -874,27 +936,41 @@ export class FinancialSimulationEngine {
   }
 
   /**
-   * Estimate pension amounts (simplified for MVP or enhanced for full version)
+   * First-year monthly pension and its ratio to final salary.
+   *
+   * Both are read off the projections rather than off the raw input fields:
+   * the simulation already prices annuities from capital, and the input
+   * fields are optional, so trusting them reported 0 kr for anyone who had
+   * not hand-entered an expected amount. The ratio is measured against the
+   * last working year's salary, which is what "av slutlön" means.
    */
   private estimatePension(
     inputs: UnifiedSimulationInputs,
-    config: SimulationConfig
+    config: SimulationConfig,
+    projections: UnifiedYearProjection[]
   ): {
     monthlyPension: number;
     compensationRatio: number;
   } {
     if (config.includePensions && inputs.pensions) {
-      // Enhanced pension calculation
-      const estimatedMonthlyPension =
-        inputs.pensions.generalPension.estimatedMonthlyAmount +
-        inputs.pensions.accounts.reduce(
-          (sum, acc) => sum + (acc.expectedMonthlyPension || 0),
-          0
-        );
+      const firstPayoutYear = projections.find(
+        (p) => (p.pensionIncome?.total || 0) > 0
+      );
+      const estimatedMonthlyPension = this.safeNumber(
+        firstPayoutYear?.pensionIncome?.total || 0
+      );
+
+      // Final salary: the last year with any salary at all.
+      const workingYears = projections.filter((p) => p.salary > 0);
+      const finalYearlySalary =
+        workingYears.length > 0
+          ? workingYears[workingYears.length - 1].salary
+          : this.safeNumber(inputs.income.monthlySalary * 12);
+      const finalMonthlySalary = finalYearlySalary / 12;
 
       const compensationRatio =
-        inputs.income.monthlySalary > 0
-          ? estimatedMonthlyPension / inputs.income.monthlySalary
+        finalMonthlySalary > 0
+          ? estimatedMonthlyPension / finalMonthlySalary
           : 0;
 
       return { monthlyPension: estimatedMonthlyPension, compensationRatio };
@@ -910,27 +986,29 @@ export class FinancialSimulationEngine {
   }
 
   /**
-   * Analyze how long capital will last in retirement
+   * Number of years into retirement that drawable capital lasts.
+   *
+   * Measured against liquid savings + ISK, not net worth: pension capital is
+   * not something you can spend down at will, and counting it made capital
+   * look like it lasted to death in every scenario. If retirement falls
+   * outside the projected range the answer is undefined rather than 0.
    */
   private analyzeCapitalDuration(
     projections: UnifiedYearProjection[],
     retirementAge: number
   ): number {
-    const retirementYear = projections.findIndex(
-      (p) => p.age === retirementAge
-    );
-    if (retirementYear === -1) return 0;
+    const retirementIndex = projections.findIndex((p) => p.age >= retirementAge);
+    if (retirementIndex === -1) return 0;
 
-    // Find when net worth reaches zero after retirement
-    for (let i = retirementYear; i < projections.length; i++) {
-      if (projections[i].netWorth <= 0) {
-        return projections[i].age - retirementAge;
+    for (let i = retirementIndex; i < projections.length; i++) {
+      if (projections[i].assets.drawable <= 0) {
+        return projections[i].age - projections[retirementIndex].age;
       }
     }
 
-    // Capital lasts until death
+    // Capital was never exhausted within the projection.
     const lastProjection = projections[projections.length - 1];
-    return lastProjection.age - retirementAge;
+    return lastProjection.age - projections[retirementIndex].age;
   }
 
   /**

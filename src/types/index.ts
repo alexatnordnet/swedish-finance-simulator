@@ -170,7 +170,6 @@ export interface MacroeconomicAssumptions {
     bonds: number; // Default 0.5%
     mixedPortfolio: number; // Default 3.5%
   };
-  overReturn: number; // Default 1.9% for real prognosis model
   lifeExpectancy: {
     male: number; // Default 82.3 years (SCB 2025)
     female: number; // Default 85.4 years (SCB 2025)
@@ -202,16 +201,9 @@ export interface SwedishTaxParameters2025 {
     minRate: number; // 1.25%
     taxRate: number; // 30%
     taxFreeAmount2025: number; // 150,000 kr
-    taxFreeAmount2026: number; // 300,000 kr
   };
   capitalGainsTax: {
     securities: number; // 30%
-    primaryHome: number; // 22%
-  };
-  interestDeduction: {
-    rate1: number; // 30% (up to 100k)
-    rate2: number; // 21% (above 100k)
-    threshold: number; // 100,000 kr
   };
 }
 

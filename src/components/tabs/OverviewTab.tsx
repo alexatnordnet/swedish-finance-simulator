@@ -8,7 +8,7 @@ interface OverviewTabProps {
     yearsOfPositiveCashFlow: number;
     maxNetWorth: number;
     finalNetWorth: number;
-    averageMonthlyPension: number;
+    expectedMonthlyPension: number;
     pensionCompensationRatio: number;
   };
   desiredRetirementAge: number;
@@ -43,10 +43,10 @@ export function OverviewTab({ summary, desiredRetirementAge, pensionWithdrawalAg
         
         <div className="card">
           <h3 className="text-xs sm:text-sm font-medium text-gray-700 mb-2">
-            Genomsnittlig månadspension
+            Månadspension vid uttagsstart
           </h3>
           <p className="text-xl sm:text-2xl font-bold text-green-600">
-            {formatCurrency(summary.averageMonthlyPension, { compact: true })}
+            {formatCurrency(summary.expectedMonthlyPension, { compact: true })}
           </p>
           <p className="text-xs sm:text-sm text-gray-500">
             {Math.round(summary.pensionCompensationRatio * 100)}% av slutlön
